@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+
+#### Configuration ##############################################################
+# Folders
+audiobooks="$HOME/Music"
+CONFIG_DIR="$HOME/.config/$0"
+HISTORY_DIR="$CONFIG_DIR/history" # Rename to history later
+
+# Set default playback interface: one of "text", "sixel" or "gui"
+interface="text"
+
+# Set alternate playback interface (_ key): one of "sixel" or "gui", only used when the primary is "text"
+secondary_interface="sixel"
+# Show the history in the text interface. Note that mpv versions < 0.38.0 will show
+
+# some garbled characters before the non-playing entries, hardcoded by the OSD
+# (see https://github.com/mpv-player/mpv/issues/5868)
+# Values are one of "yes" or "no"; if set to "no", F8 will show the list temporarily.
+persistent_terminal_playlist="no"
+
+# Use supplied lua script to format output
+luascript="yes"
+#### End of configuration #######################################################
+
+# Variables
+if [ "$persistent_terminal_playlist" = "yes" ]; then
+    text_playlist="\n\${playlist}"
+    # echo "mp.register_event('end-file', function() mp.command('run clear') end)" > /tmp/audiobook-tui-playlist.lua
+else
+    text_playlist=""
+    # cat /dev/null > /tmp/audiobook-tui-playlist.lua
+fi
+
+if [ "$luascript" = "yes" ]; then
+    script="--script=$CONFIG_DIR/$0.lua"
+fi
+
+text_status="'\${?pause==no:▶ }\${?pause==yes:⏸ }\${percent-pos}% [\${time-pos}/\${duration}] \${filename} \${?pause==yes:(paused)}\n$text_playlist '"
+mpv_opts="--no-config --ao=pulse $script --watch-later-dir=$HOME/.local/state/mpv/watch_later --save-position-on-quit --script-opts=osc-visibility=always --msg-level=all=error,statusline=status --term-status-msg=$text_status"
+
+mode=""
+path=""
+dummy_text="'$(printf \\033)'"
+
+case "$interface" in
+    text)
+	if [ "$secondary_interface" = "gui" ]; then
+	    secondary_interface="gui" # ""
+	fi
+	mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
+	echo "$mpvui" > /tmp/mpv.conf
+	;;
+    sixel)
+	mpvui="--vo=sixel --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
+	echo "$mpvui" > /tmp/mpv.conf
+        ;;
+    gui)
+	mpvui="--input-conf='memory://_ cycle vid'"
+	echo "--no-video" > /tmp/mpv.conf
+	echo "$mpvui" >> /tmp/mpv.conf
+        ;;
+    *)
+        echo "Error: Invalid value for --interface. Use one of (text, sixel, gui)"
+        exit 1
+        ;;
+esac
+
+sed -i 's|--|\n--|g' /tmp/mpv.conf
+
+# Create necessary directories if they don't exist
+mkdir -p "$HISTORY_DIR"
+
+# Function to display help menu
+show_help() {
+    echo "Usage: $0 [options]"
+    echo ""
+    echo "Options:"
+    echo "  -c, --continue           Resume playback from history"
+    echo "  -f, --files              List audio files instead of directories"
+    echo "  -i, --interface <value>  Set primary playback interface (text, sixel, gui)"
+    echo "  -p, --path <path>        Set path to audiobooks"
+    echo "  -h, --help               Show this help message and exit"
+}
+
+# Function to parse command-line arguments
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            -c|--continue)
+                mode="continue"
+                ;;
+            -f|--files)
+                mode="files"
+                ;;
+            -i|--interface)
+                shift
+                if [ -z "$1" ]; then
+                    echo "Error: --interface requires a value (none, sixel, gui)"
+                    exit 1
+                fi
+                case "$1" in
+		    text)
+			if [ "$secondary_interface" = "gui" ]; then
+			    secondary_interface="gui" # ""
+			fi
+			mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
+			;;
+		    sixel)
+			mpvui="--vo=sixel --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
+			;;
+		    gui)
+			mpvui="--input-conf='memory://_ cycle vid'"
+			;;
+		    *)
+                esac
+                ;;
+            -p|--path)
+                shift
+                if [ -z "$1" ]; then
+                    echo "Warning: --path requires a value. Using default"
+                    path=$(realpath "$audiobooks")
+                else
+                    path=$(realpath "$1")
+                fi
+                ;;
+            *)
+                echo "Error: Invalid option $1"
+                show_help
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    # Set default path if not provided
+    if [ -z "$path" ]; then
+        path=$(realpath "$audiobooks")
+    fi
+}
+
+# Function to play selected files
+play_files() {
+    mpv $mpv_opts $mpvui --playlist="$1"
+}
+
+# Basic file browser with directory and file preview
+list() {
+    fd $filter --min-depth 1 --max-depth 2 -L $filter2
+}
+
+fzf_browser() {
+    local dir="$1"
+    local mode="$2"
+    
+    cd "$HISTORY_DIR" || { echo "Invalid history directory: '$HISTORY_DIR'"; exit 1; }
+    cd "$dir" || { echo "Invalid audiobooks directory: '$dir'"; exit 1; }
+
+    echo "$HISTORY_DIR" > /tmp/fzplayer-dirs
+    echo "$dir" >> /tmp/fzplayer-dirs
+
+    cat /dev/null > /tmp/fzplayer-playlist
+    ccat /dev/null > /tmp/fzplayer-playlist-name
+    
+    # Modified bind action to handle both directories and files
+    list | sort | sed 's|^\./||' | fzf --ansi --sync --multi --height=100% --border=none --delimiter="/" --with-nth=-2..-1 \
+    --prompt="$fzf_prompt" \
+    --header="$fzf_header" \
+    --preview="$fzf_preview" \
+    --preview-window="$fzf_preview_window" \
+    --bind="enter:execute(
+        echo {} | sed 's|/| > |g' > /tmp/fzplayer-playlist-name && \
+        (if [ -d {} ]; then \
+            fd . --min-depth 1 --max-depth 5 --type f -e mp3 -e m4a -e flac -e wav -e ogg $(realpath {}) | sort | sed 's|^\./||'; \
+        else \
+            echo {} | sed 's|^\./||'; \
+        fi) > /tmp/fzplayer-playlist && \
+	clear && printf '\033[34mPlaying %s (%s file(s)):\033[0m\n\n' {} $(wc -l < /tmp/fzplayer-playlist) && \
+        head /tmp/fzplayer-playlist -n 40 | rev | cut -d / -f 1 | rev | sed 's|^|  |' | column -c $(tput cols) -x && printf '\n' && \
+	printf '\033[34m\nKeybindings:\033[0m\n\n  q: stop playback and go back\n  space: play/pause\n  arrows: seek\n  </>: prev/next in playlist\n  9/0/m: vol-/vol+/mute\n  F8: show playlist\n  _: toggle graphical interface (sixel or gui, as set in configuration or at runtime)\n\n' & \
+        mpv $mpv_opts $mpvui --playlist=/tmp/fzplayer-playlist)" \
+    --bind='ctrl-x:+change-preview(echo -e "\033[5;1m♫\033[25;0m AUDIO PREVIEW\n\n\033[2mPress C-c to stop\033[0m" && mpv --no-config --no-video --really-quiet {})' \
+    --bind='ctrl-x:+change-preview-window(45%,border-left,nowrap)' \
+    --bind='ctrl-x:+refresh-preview' \
+    --bind='ctrl-c:execute-silent(pkill play)' \
+    --bind='ctrl-c:+change-preview(tree -C {})' \
+    --bind='ctrl-c:+refresh-preview' \
+    --bind='ctrl-d:change-prompt(Directories > )' \
+    --bind='ctrl-d:+reload(fd . --min-depth 1 --max-depth 1 --type d $(tail /tmp/fzplayer-dirs -n 1) | sort | sed "s|^\./||")' \
+    --bind='ctrl-d:+change-preview(tree -C {})' \
+    --bind='ctrl-d:+change-preview-window(45%,border-left,nowrap)' \
+    --bind='ctrl-d:+refresh-preview' \
+    --bind='ctrl-f:change-prompt(Files > )' \
+    --bind='ctrl-f:+reload(fd . --min-depth 1 --max-depth 5 --type f --color=always -e mp3 -e m4a -e flac -e wav -e ogg $(tail /tmp/audiobook-tui-dirs -n 1) | sort | sed "s|^\./||")' \
+    --bind='ctrl-f:+change-preview(printf \\033[34m{} | sed "s|$(tail -n 1 /tmp/audiobook-tui-dirs)/||" | xargs -I {} dirname {} && printf \\033[0m && soxi {})' \
+    --bind='ctrl-f:+change-preview-window(45%,border-left,nowrap)' \
+    --bind='ctrl-f:+refresh-preview' \
+    --bind='ctrl-delete:execute(rm -i {})+reload(fd --min-depth 1 --max-depth 1 --type f $(head /tmp/fzplayer-dirs -n 1) | sort)' \
+    --bind='ctrl-h:change-prompt(History > )' \
+    --bind='ctrl-e:execute(echo 'edit' > /tmp/fzplayer-arg {})' \
+    --bind='ctrl-h:+reload(fd . --min-depth 1 --max-depth 1 --type f $(head /tmp/fzplayer-dirs -n 1) | sort)' \
+    --bind='ctrl-h:+change-preview(cat {} | rev | cut -d / -f -2 | rev)' \
+    --bind='ctrl-h:+change-preview-window(45%,border-left,nowrap)' \
+    --bind='ctrl-h:+refresh-preview' \
+    --bind='ctrl-h:+change-header(
+C-d: display directories        C-del: delete playlist
+C-f: display files              C-e: edit playlist 
+C-p: toggle preview panel
+Tab: select
+C-a: select all
+C-w: deselect all
+Ent: play selection as a playlist (main action)
+
+)' \
+    --bind='ctrl-d:+change-header(
+C-f: display files
+C-h: display history
+C-p: toggle preview panel
+Tab: select
+C-a: select all
+C-w: deselect all
+Ent: play selection as a playlist (main action)
+
+)' \
+    --bind='ctrl-f:+change-header(
+C-d: display directories        C-x: enable audio preview
+C-h: display history            C-c: disable audio preview
+C-p: toggle preview panel
+Tab: select
+C-a: select all
+C-w: deselect all
+Ent: play selection as a playlist (main action)
+
+)' \
+    --bind='ctrl-a:select-all' \
+    --bind='ctrl-w:deselect-all' \
+    --bind='ctrl-p:toggle-preview'
+}
+
+# Main script logic
+parse_args "$@"
+
+case "$mode" in
+    continue)
+        filter="--type f"
+        filter2="."
+        fzf_prompt='History > '
+        fzf_preview="cat {} | rev | cut -d / -f -2 | rev"
+        fzf_preview_window="45%,border-left,nowrap"
+        fzf_header='
+C-d: display directories        C-del: delete playlist
+C-f: display files
+C-p: toggle preview panel
+Tab: select
+C-a: select all
+C-w: deselect all
+Ent: play selection as a playlist (main action)
+
+'
+        fzf_browser "$HISTORY_DIR" "$mode"
+        ;;
+    files)
+        filter='--type f'
+        filter2='-e mp3 -e m4a -e flac --ectension wav -e ogg'
+        fzf_prompt='Files > '
+        fzf_preview="soxi {}"
+        fzf_preview_window="45%,border-left,nowrap"
+        fzf_header='
+C-d: display directories        C-x: enable audio preview
+C-h: display history            C-c: disable audio preview
+C-p: toggle preview panel
+Tab: select
+C-a: select all
+C-w: deselect all
+Ent: play selection as a playlist (main action)
+
+'
+        fzf_browser "$path" "$mode"
+        ;;
+    *)
+        mode="dirs"
+        filter='--type d'
+        filter2="."
+        fzf_prompt='Directories > '
+        fzf_preview="tree -C {}"
+        fzf_preview_window="45%,border-left,nowrap"
+        fzf_header='
+C-f: display files
+C-h: display history
+C-p: toggle preview panel
+Tab: select
+C-a: select all
+C-w: deselect all
+Ent: play selection as a playlist (main action)
+
+'
+        fzf_browser "$path" "$mode"
+        ;;
+esac
+
+# fzcd() {
+#   DIR=`find * -maxdepth 0 -type d -print 2> /dev/null | fzf` \
+#     && cd "$DIR"
+# }
+
+    # --bind='ctrl-m:change-preview(mpv --no-config --vo=null --include=/tmp/mpv.conf {})' \
+    # --bind='ctrl-m:+change-preview-window(45%,border-left,nowrap)' \
+    # --bind='ctrl-m:+refresh-preview' \
