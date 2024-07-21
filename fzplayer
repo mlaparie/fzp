@@ -25,8 +25,11 @@ BASE_PATH=""
 show_help=false
 
 # Keep a copy of the temporary playlist in history even after reboots
-# Check if the file in /tmp exists
-if [ ! -f /tmp/fzplayer-playlist ]; then
+# Check if the files in /tmp and history directory exist
+if [[ ! -f "$HISTORY_DIR"/tmp ]]; then
+    touch "$HISTORY_DIR"/tmp
+fi
+if [[ ! -f /tmp/fzplayer-playlist ]]; then
     # If it doesn't exist, create it based on the file in ~/.config
     ln -s "$HISTORY_DIR/tmp" /tmp/fzplayer-playlist
 fi
