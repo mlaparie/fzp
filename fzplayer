@@ -12,7 +12,7 @@ interface="text"
 # Set alternate playback interface (_ key): one of "sixel" or "gui", only used when the primary is "text"
 secondary_interface="sixel"
 
-# Use supplied lua script to format output, highly recommended
+# Use supplied lua script to format output, recommended
 luascript="yes"
 
 #### End of configuration #######################################################
@@ -22,6 +22,14 @@ if [ "$luascript" = "yes" ]; then
     script="--script=$CONFIG_DIR/fzplayer.lua"
 fi
 BASE_PATH=""
+show_help=false
+
+# Keep a copy of the temporary playlist in history even after reboots
+# Check if the file in /tmp exists
+if [ ! -f /tmp/fzplayer-playlist ]; then
+    # If it doesn't exist, create it based on the file in ~/.config
+    ln -s "$HISTORY_DIR/tmp" /tmp/fzplayer-playlist
+fi
 
 # Define text status format
 text_status="'\${?pause==no:$(printf \\033[1\;5\;35m)▶ }\${?pause==yes:$(printf \\033[1\;5\;33m)⏸ }$(printf \\033[25m)\${percent-pos}% [\${time-pos}/\${duration}\${!speed==1: × \${speed}}]$(printf \\033[0m) $(printf \\033[1m)\${filename/no-ext}$(printf \\033[0m) \${?mute==yes:| $(printf \\033[36m)muted}$(printf \\033[0m) '"
@@ -103,24 +111,10 @@ parse_args() {
             -i|--interface)
                 shift
                 if [ -z "$1" ]; then
-                    echo "Error: --interface requires a value among (none, sixel, gui)"
+                    echo "Error: --interface requires a value among (text, sixel, gui)"
                     exit 1
                 fi
-                case "$1" in
-                    text)
-                        mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
-                        ;;
-                    sixel)
-                        mpvui="--vo=sixel --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
-                        ;;
-                    gui)
-                        mpvui="--input-conf='memory://_ cycle vid'"
-                        ;;
-                    *)
-                        echo "Error: --interface requires a value among (none, sixel, gui)"
-                        exit 1
-                        ;;
-                esac
+                interface="$1"  # Set the interface variable
                 ;;
             -p|--path)
                 shift
@@ -155,7 +149,8 @@ configure_mpv_interface() {
             mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
             ;;
         sixel)
-            mpvui="--vo=sixel --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
+            mpv_opts_base="${mpv_opts_base/--term-status-msg=$text_status/--term-status-msg=''}"  # Mute term-status-msg
+            mpvui="--vo=sixel --input-conf='memory://_ cycle-values term-status-msg $dummy_text \"\"; cycle vid'"
             ;;
         gui)
             mpvui="--input-conf='memory://_ cycle vid'"
@@ -168,6 +163,8 @@ configure_mpv_interface() {
 }
 
 # Function to play selected files
+# We have to use an eval of $play_files here because this allows using double quotes; if we just use
+# a shell function, the $mpv_opts and $mpvui are not correctly expanded, even with double quotes
 play_files() {
     eval "mpv $mpv_opts_base $mpvui $@"
 }
@@ -191,11 +188,11 @@ main() {
 
     while :; do
 
-	if [[ -z "$dir" ]]; then
-	    dir="$1"
-	elif [[ -f "$dir" ]]; then
-	    dir="$(dirname "$dir")"
-	fi
+        if [[ -z "$dir" ]]; then
+            dir="$1"
+        elif [[ -f "$dir" ]]; then
+            dir="$(dirname "$dir")"
+        fi
         
         if [[ "$mode" == "history" ]]; then
             dir="$HISTORY_DIR"
@@ -239,6 +236,7 @@ main() {
                       --bind='ctrl-e:execute(echo "edit" > /tmp/fzplayer-arg)+accept' \
                       --bind='del:execute(echo "delete" > /tmp/fzplayer-arg)+accept' \
                       --bind='ctrl-a:execute(echo "add" > /tmp/fzplayer-arg)+accept' \
+		      --bind='ctrl-j:execute(echo "addplay" > /tmp/fzplayer-arg)+accept' \
                       --bind='ctrl-r:execute(echo "rename" > /tmp/fzplayer-arg)+accept' \
                       --bind='ctrl-s:execute(echo "save" > /tmp/fzplayer-arg)+accept' \
                       --bind='left:execute(echo "cdup" > /tmp/fzplayer-arg)+accept' \
@@ -282,6 +280,11 @@ main() {
                     ;;
                 dirs)
                     mode="dirs"
+		    if [[ "$dir" == "$HISTORY_DIR" ]]; then
+			dir="$path"
+		    else
+			dir="$dir"
+		    fi
                     filter='--type d'
                     filter2="."
                     fzf_prompt="Dirs > "
@@ -298,6 +301,11 @@ main() {
                     ;;
                 files)
                     mode="files"
+		    if [[ "$dir" == "$HISTORY_DIR" ]]; then
+			dir="$path"
+		    else
+			dir="$dir"
+		    fi
                     filter='--type f'
                     filter2='--max-depth 8 -e mp3 -e m4a -e flac -e wav -e ogg'
                     fzf_prompt='Files > '
@@ -316,38 +324,51 @@ main() {
                     # fd the list of audio files in subdirectories of the selected folder and list them with their full path in /tmp/fzplayer-playlist
                     # Then run play_files on that list
                     if [[ "$mode" == "history" ]]; then
-                        cp "$selection" /tmp/fzplayer-playlist
+                        cp "$selection" /tmp/fzplayer-playlist 2>/dev/null
+		    elif [[ "$mode" == "files" ]]; then
+			echo "$(realpath "$selection")" > /tmp/fzplayer-playlist
                     elif [[ "$mode" == "dirs" ]]; then
                         fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort > /tmp/fzplayer-playlist
-                    else
-                        echo "$(realpath "$selection")" > /tmp/fzplayer-playlist
                     fi
                     last="$(tail -n 1 /tmp/fzplayer-pos)"
-                    head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
+                    head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-po
                     play_files --playlist=/tmp/fzplayer-playlist
                     ;;
-                add)
-                    # Similar to "play" but append to /tmp/fzplayer-playlist without relaunching mpv, i.e., add to queue
-                    if [[ "$mode" == "history" ]]; then
-                        cat "$selection" >> /tmp/fzplayer-playlist
-                    else
-                        fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort >> /tmp/fzplayer-playlist
-                    fi
-                    ;;
-                save)
+		save)
                     # Save current /tmp/fzplayer-playlist playlist to $HISTORY_DIR/YYYYMMDD_<number of lines in the file>_tracks
                     local datetime=$(date +%Y%m%d_%H%M%S)
                     if [[ "$mode" == "history" ]]; then
                         cp "$selection" /tmp/fzplayer-playlist
+		    elif [[ "$mode" == "files" ]]; then
+			echo "$(realpath "$selection")" > /tmp/fzplayer-playlist
                     elif [[ "$mode" == "dirs" ]]; then
                         fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort > /tmp/fzplayer-playlist
-                    else
-                        echo "$(realpath "$selection")" > /tmp/fzplayer-playlist
                     fi
                     last="$(tail -n 1 /tmp/fzplayer-pos)"
                     head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
                     cp /tmp/fzplayer-playlist "$HISTORY_DIR/${datetime}"
                     play_files --playlist=/tmp/fzplayer-playlist
+                    ;;
+                addplay)
+                    # Similar to "play" but append to /tmp/fzplayer-playlist without relaunching mpv, i.e., add to queue
+                    if [[ "$mode" == "history" ]]; then
+                        cat "$selection" >> /tmp/fzplayer-playlist
+		    elif [[ "$mode" == "files" ]]; then
+			echo "$(realpath "$selection")" >> /tmp/fzplayer-playlist
+                    else
+                        fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort >> /tmp/fzplayer-playlist
+                    fi
+		    play_files --playlist=/tmp/fzplayer-playlist
+                    ;;
+                add)
+                    # Similar to "play" but append to /tmp/fzplayer-playlist without relaunching mpv, i.e., add to queue
+                    if [[ "$mode" == "history" ]]; then
+                        cat "$selection" >> /tmp/fzplayer-playlist
+		    elif [[ "$mode" == "files" ]]; then
+			echo "$(realpath "$selection")" >> /tmp/fzplayer-playlist
+                    else
+                        fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort >> /tmp/fzplayer-playlist
+                    fi
                     ;;
                 edit)
                     # Invoke $EDITOR on the corresponding $HISTORY_DIR/YYYYMMDD_folderdepth2>folderdepth3 file
@@ -413,47 +434,47 @@ main() {
                     fi
                     continue
                     ;;
-		cdup)
-		    # cd into parent directory and relaunch main()
-		    par_dir="$(realpath "$(dirname "$dir")")"
-		    if [[ -n "$par_dir" && "$mode" != "files" && "$(realpath "$dir")" != "$(realpath "$media")" ]]; then
-			if [[ "$par_dir" == "$BASE_PATH" || "$par_dir" == "${BASE_PATH}"/* ]]; then
-			    dir="$par_dir"
-			    last="$(tail -n 1 /tmp/fzplayer-pos)"
-			else
-			    echo "Already at the base path, cannot move up further."
-			fi
-		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$dir")" != "$(realpath "$media")" ]]; then
-			if [[ "$par_dir" == "$BASE_PATH" || "$par_dir" == "${BASE_PATH}"/* ]]; then
-			    case "$dir" in
-				"$from_dir")
-				    dir="$media"
-				    last="" ;;
-				*)
-				    dir="$from_dir"
-				    last="$(tail -n 1 /tmp/fzplayer-pos)" ;;
-			    esac
-			else
-			    echo "Already at the base path, cannot move up further."
-			fi
-		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$dir")" == "$(realpath "$media")" ]]; then
-			last=""
-		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")" ]]; then
-			dir="$media"
-			last="$(tail -n 1 /tmp/fzplayer-pos)"
-		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")"/* && "$(realpath "$from_dir")" == "$(realpath "$dir")" ]]; then
-			dir="$(realpath "$(dirname "$dir")")"
-			last=""
-		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")"/* && "$(realpath "$from_dir")" != "$(realpath "$dir")" ]]; then
-			dir="$from_dir"
-			last="$(tail -n 1 /tmp/fzplayer-pos)"
-		    elif [[ -n "$par_dir" && "$(realpath "$par_dir")" == "$(realpath "$media")"/* && "$(realpath "$par_dir")" != "$(realpath "$dir")" ]]; then
-			dir="$par_dir"
-			last="$(tail -n 1 /tmp/fzplayer-pos)"
-		    fi
-		    head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
-		    continue
-		    ;;
+                cdup)
+                    # cd into parent directory and relaunch main()
+                    par_dir="$(realpath "$(dirname "$dir")")"
+                    if [[ -n "$par_dir" && "$mode" != "files" && "$(realpath "$dir")" != "$(realpath "$media")" ]]; then
+                        if [[ "$par_dir" == "$BASE_PATH" || "$par_dir" == "${BASE_PATH}"/* ]]; then
+                            dir="$par_dir"
+                            last="$(tail -n 1 /tmp/fzplayer-pos)"
+                        else
+                            echo "Already at the base path, cannot move up further."
+                        fi
+                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$dir")" != "$(realpath "$media")" ]]; then
+                        if [[ "$par_dir" == "$BASE_PATH" || "$par_dir" == "${BASE_PATH}"/* ]]; then
+                            case "$dir" in
+                                "$from_dir")
+                                    dir="$media"
+                                    last="" ;;
+                                *)
+                                    dir="$from_dir"
+                                    last="$(tail -n 1 /tmp/fzplayer-pos)" ;;
+                            esac
+                        else
+                            echo "Already at the base path, cannot move up further."
+                        fi
+                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$dir")" == "$(realpath "$media")" ]]; then
+                        last=""
+                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")" ]]; then
+                        dir="$media"
+                        last="$(tail -n 1 /tmp/fzplayer-pos)"
+                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")"/* && "$(realpath "$from_dir")" == "$(realpath "$dir")" ]]; then
+                        dir="$(realpath "$(dirname "$dir")")"
+                        last=""
+                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")"/* && "$(realpath "$from_dir")" != "$(realpath "$dir")" ]]; then
+                        dir="$from_dir"
+                        last="$(tail -n 1 /tmp/fzplayer-pos)"
+                    elif [[ -n "$par_dir" && "$(realpath "$par_dir")" == "$(realpath "$media")"/* && "$(realpath "$par_dir")" != "$(realpath "$dir")" ]]; then
+                        dir="$par_dir"
+                        last="$(tail -n 1 /tmp/fzplayer-pos)"
+                    fi
+                    head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
+                    continue
+                    ;;
                 preview-toggled)
                     # Toggle the preview panel on/off
                     if [[ $(cat /tmp/fzplayer-preview) == "on" || $(cat /tmp/fzplayer-preview) == "audio-on" ]]; then 
@@ -529,8 +550,8 @@ main() {
 
   \033[1;7m Ent \033[0;27m send to tmp playlist & play
   \033[1;7m C-s \033[0;27m save to new playist & play
-  \033[1;7m C-j \033[0;27m append to tmp playlist & play
-  \033[1;7m C-a \033[0;27m append to tmp playlist
+  \033[1;7m C-j \033[0;27m enqueue to tmp playlist & resume
+  \033[1;7m C-a \033[0;27m enqueue to tmp playlist
 
   Preview
 
@@ -574,6 +595,7 @@ main() {
                 quit)
                     # Quit the program
                     pkill -P $$
+		    clear
                     return
                     ;;
                 *)
