@@ -65,6 +65,9 @@ case "$interface" in
         ;;
 esac
 
+test=("mpv $mpv_opts $mpvui --playlist=/tmp/toto")
+test
+
 sed -i 's|--|\n--|g' /tmp/mpv.conf
 
 # Create necessary directories if they don't exist
@@ -146,6 +149,8 @@ parse_args() {
 play_files() {
     mpv $mpv_opts $mpvui --playlist="$1"
 }
+
+play_files /tmp/some.mp3
 
 # Basic file browser with directory and file preview
 list() {
