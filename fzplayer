@@ -531,10 +531,10 @@ main() {
                     fi
                     continue
                     ;;
-                help)
-                    # Toggle help display
-                    if [[ "$show_help" == "false" ]]; then
-                        help_text='\033[34;1mKeybindings\033[0m
+		help)
+		    # Toggle help display
+		    if [[ "$show_help" == "false" ]]; then
+			help_text='\033[34;1mKeybindings\033[0m
 
   General
 
@@ -570,31 +570,30 @@ main() {
   \033[1;7m Del \033[0;27m delete playlist
 
 '
-                        fzf_preview="printf '$help_text'"
-                        show_help=true
-                    else
-                        show_help=false
-                        case "$(cat /tmp/fzplayer-preview)" in
-                            "on")
-                                case "$mode" in
-                                    history)
-                                        fzf_preview="printf 'Tracks: ' && wc -l < {} && printf '\n' && cat -n {} | rev | cut -d / -f -2 | rev" ;;
-                                    files)
-                                        fzf_preview="soxi {}" ;;
-                                    *)
-                                        fzf_preview="tree -C {} | sed 's/[│├─└]/ /g'" ;;
-                                esac
-                                ;;
-                            "off")
-                                fzf_preview=""
-                                ;;
-                            "audio")
-                                fzf_preview=""
-                                ;;
-                        esac
-                    fi
-                    continue
-                    ;;
+			fzf_preview="printf '$help_text'"
+			show_help=true
+		    else
+			show_help=false
+			case "$(cat /tmp/fzplayer-preview)" in
+			    "on")
+				case "$mode" in
+				    history)
+					fzf_preview="printf 'Tracks: ' && wc -l < {} && printf '\n' && cat -n {} | rev | cut -d / -f -2 | rev" ;;
+				    files)
+					fzf_preview="soxi {}" ;;
+				    *)
+					fzf_preview="tree -C {} | sed 's/[│├─└]/ /g'" ;;
+				esac
+				;;
+			    "off")
+				fzf_preview=""
+				;;
+			    "audio-on")
+				fzf_preview='echo -e "\033[5;1m♫\033[25;0m AUDIO PREVIEW\n\n\033[2mPress C-x to stop\033[0m" && sleep 0.2 && mpv --no-config --no-video --really-quiet {}'
+				;;
+			esac
+		    fi
+		    ;;
                 quit)
                     # Quit the program
                     pkill -P $$
