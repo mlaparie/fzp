@@ -30,6 +30,9 @@ mpv_opts_base="--no-config --ao=pulse --osd-level=0 --profile=sw-fast $script --
 
 # Function to display help menu
 show_help() {
+    echo "fzplayer - A terminal audio player based on fzf and mpv, featuring fuzzy finding,"
+    echo "sixel graphics, playlists and history for resuming playback (i.e., audiobooks)."
+    echo ""
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
@@ -39,6 +42,7 @@ show_help() {
     echo "  -i, --interface <value>       Set primary playback interface (text, sixel, gui)"
     echo "  -p, --path <path>             Set path to media"
     echo "  -h, --help                    Show this help message and exit"
+    echo ""
 }
 
 # Check dependencies
