@@ -23,21 +23,14 @@ luascript="yes"
 #### End of configuration #######################################################
 
 # Variables
-if [ "$persistent_terminal_playlist" = "yes" ]; then
-    text_playlist="\n\${playlist}"
-    # echo "mp.register_event('end-file', function() mp.command('run clear') end)" > /tmp/fzplayerlua
-else
-    text_playlist=""
-    # cat /dev/null > /tmp/fzplayer.lua
-fi
-
 if [ "$luascript" = "yes" ]; then
     script="--script=$CONFIG_DIR/fzplayer.lua"
 fi
 
-text_status="'\${?pause==no:▶ }\${?pause==yes:⏸ }\${percent-pos}% [\${time-pos}/\${duration}] \${filename} \${?pause==yes:(paused)}\n$text_playlist '"
-mpv_opts="--no-config --ao=pulse $script --watch-later-dir=$HOME/.local/state/mpv/watch_later --save-position-on-quit --script-opts=osc-visibility=always --msg-level=all=error,statusline=status --term-status-msg=$text_status"
+text_status="'\${?pause==no:$(printf \\033[1\;5\;35m)▶ }\${?pause==yes:$(printf \\033[1\;5\;33m)⏸ }$(printf \\033[25m)\${percent-pos}% [\${time-pos}/\${duration}\${!speed==1: × \${speed}}]$(printf \\033[0m) $(printf \\033[1m)\${filename/no-ext}$(printf \\033[0m) \${?mute==yes:| $(printf \\033[36m)muted}$(printf \\033[0m) '"
+mpv_opts="--no-config --ao=pulse --osd-level=0 --profile=sw-fast $script --cover-art-auto=no --watch-later-dir=$HOME/.local/state/mpv/watch_later --save-position-on-quit --script-opts=osc-visibility=always,tick_delay=1 --msg-level=all=error,statusline=status --term-status-msg=$text_status"
 
+ln -s /tmp/fzplayer-playlist "$HISTORY_DIR"/tmp 
 mode=""
 path=""
 dummy_text="'$(printf \\033)'"
@@ -50,7 +43,7 @@ case "$interface" in
 	    secondary_interface="gui" # ""
 	fi
 	mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
-	echo "$mpvui" > /tmp/fzplayer-mpv.conf
+	echo "$mpvui" > /tmp/fzplayer-mpv.confxs
 	;;
     sixel)
 	mpvui="--vo=sixel --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
@@ -82,6 +75,44 @@ show_help() {
     echo "  -i, --interface <value>  Set primary playback interface (text, sixel, gui)"
     echo "  -p, --path <path>        Set path to media"
     echo "  -h, --help               Show this help message and exit"
+}
+
+# Check dependencies
+check_dependencies() {
+    local dependencies=("fzf>=0.54.0" "mpv>=0.38.0" "soxi" "fd")
+    local missing_dependencies=()
+
+    for dep in "${dependencies[@]}"; do
+        local name="${dep%%>=*}"
+        local version="${dep##*>=}"
+        if ! command -v "$name" &> /dev/null; then
+            missing_dependencies+=("$dep")
+        elif [[ "$dep" == *">="* ]]; then
+            local installed_version
+            case "$name" in
+                fzf)
+                    installed_version=$(fzf --version | head -n 1)
+                    ;;
+                mpv)
+                    installed_version=$(mpv --version | head -n 1 | awk '{print $2}')
+                    ;;
+                soxi)
+                    installed_version=$(soxi --version | head -n 1 | awk '{print $3}')
+                    ;;
+                fd)
+                    installed_version=$(fd --version | head -n 1 | awk '{print $2}')
+                    ;;
+            esac
+            if [[ "$installed_version" < "$version" ]]; then
+                missing_dependencies+=("$dep")
+            fi
+        fi
+    done
+
+    if [ ${#missing_dependencies[@]} -ne 0 ]; then
+        echo -e "\033[31mError:\033[0m ${missing_dependencies[@]} not found or outdated."
+        exit 1
+    fi
 }
 
 # Function to parse command-line arguments
@@ -149,7 +180,7 @@ play_files="mpv $mpv_opts $mpvui" # We have to use an eval of $play_files here b
 
 # Basic file browser with directory and file preview
 fdfun() {
-    fd $filter --min-depth 1 --max-depth 1 -L $filter2 --color=always | sort
+    fd $filter --min-depth 1 --max-depth 1 -L $filter2 --color=always | sort $reverse
 }
 
 # Main function
@@ -163,7 +194,9 @@ main() {
     cd "$1" 2>/dev/null || { echo "Invalid media directory: '$1'"; exit 1; }
     echo "$1" >> /tmp/fzplayer-dirs
 
-    cat /dev/null > /tmp/fzplayer-playlist
+    if [[ -f /tmp/fzplayer-playlist ]]; then
+	cat /dev/null > /tmp/fzplayer-playlist
+    fi
     cat /dev/null > /tmp/fzplayer-pos
     echo "on" > /tmp/fzplayer-preview
 
@@ -176,8 +209,14 @@ main() {
 	fi
 	cd "$dir"
 	
-	folder="$(basename "$dir" )"
-
+	if [[ "$mode" == "continue" ]]; then
+	    folder=""
+	    reverse="--reverse"
+	else
+	    folder="$(basename "$dir") > "
+	    reverse=""
+	fi
+	
 	clear
 
 	selection=$(fdfun \
@@ -191,7 +230,7 @@ main() {
 			      --no-multi \
 			      --cycle \
 			      --sync \
-			      --prompt="$(printf '%s\033[2m%s > \033[0m' "$fzf_prompt" "$folder")" \
+			      --prompt="$(printf '%s\033[2m%s\033[0m' "$fzf_prompt" "$folder")" \
 			      --header="$fzf_header" \
 			      --preview="$fzf_preview" \
 			      --preview-window="$fzf_preview_window" \
@@ -208,7 +247,10 @@ main() {
                               --bind='ctrl-d:execute(echo "dirs" > /tmp/fzplayer-arg)+accept' \
 			      --bind='ctrl-f:execute(echo "files" > /tmp/fzplayer-arg)+accept' \
                               --bind='ctrl-e:execute(echo "edit" > /tmp/fzplayer-arg)+accept' \
+                              --bind='del:execute(echo "delete" > /tmp/fzplayer-arg)+accept' \
 			      --bind='ctrl-a:execute(echo "add" > /tmp/fzplayer-arg)+accept' \
+			      --bind='ctrl-r:execute(echo "rename" > /tmp/fzplayer-arg)+accept' \
+			      --bind='ctrl-s:execute(echo "save" > /tmp/fzplayer-arg)+accept' \
 			      --bind='left:execute(echo "cdup" > /tmp/fzplayer-arg)+accept' \
 			      --bind='right:execute-silent(echo "$FZF_POS" >> /tmp/fzplayer-pos)' \
 			      --bind='right:+execute(echo "cddown" > /tmp/fzplayer-arg)+accept' \
@@ -239,9 +281,9 @@ main() {
 		    fzf_prompt='History > '
 		    fzf_withnth="-1"
 		    if [[ $(cat /tmp/fzplayer-preview) == "on" ]]; then 
-			fzf_preview="cat {} | rev | cut -d / -f -2 | rev"
+			fzf_preview="printf 'Tracks: ' && wc -l < {} && printf '\n' && cat -n {} | rev | cut -d / -f -2 | rev"
 		    fi
-		    fzf_preview_window="45%,border-left,nowrap"
+		    fzf_preview_window="65%,border-left,nowrap"
 		    fzf_header='
 ? Help
 
@@ -283,10 +325,12 @@ main() {
                 play)
 		    # fd the list of audio files in subdirectories of the selected folder and list them with their full path in /tmp/fzplayer-playlist
 		    # Then run play_files on that list
-		    if [[ "$mode" != "continue" ]]; then
+		    if [[ "$mode" == "continue" ]]; then
+			cp "$selection" /tmp/fzplayer-playlist
+		    elif [[ "$mode" == "dirs" ]]; then
 			fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort > /tmp/fzplayer-playlist
 		    else
-			cp "$selection" /tmp/fzplayer-playlist
+			echo "$(realpath "$selection")" > /tmp/fzplayer-playlist
 		    fi
 		    last="$(tail -n 1 /tmp/fzplayer-pos)"
 		    head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
@@ -294,21 +338,69 @@ main() {
                     ;;
 		add)
 		    # Similar to "play" but append to /tmp/fzplayer-playlist without relaunching mpv, i.e., add to queue
-		    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort >> /tmp/fzplayer-playlist
+		    if [[ "$mode" == "continue" ]]; then
+			cat "$selection" >> /tmp/fzplayer-playlist
+		    else
+			fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort >> /tmp/fzplayer-playlist
+		    fi
 		    ;;
 		save)
 		    # Save current /tmp/fzplayer-playlist playlist to $HISTORY_DIR/YYYYMMDD_<number of lines in the file>_tracks
 		    local datetime=$(date +%Y%m%d_%H%M%S)
-		    local lines=$(wc -l < /tmp/fzplayer-playlist)
-		    cp /tmp/fzplayer-playlist "$HISTORY_DIR/${datetime}_${lines}_tracks"
+		    if [[ "$mode" == "continue" ]]; then
+			cp "$selection" /tmp/fzplayer-playlist
+		    elif [[ "$mode" == "dirs" ]]; then
+			fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort > /tmp/fzplayer-playlist
+		    else
+			echo "$(realpath "$selection")" > /tmp/fzplayer-playlist
+		    fi
+		    last="$(tail -n 1 /tmp/fzplayer-pos)"
+		    head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
+		    cp /tmp/fzplayer-playlist "$HISTORY_DIR/${datetime}"
+		    eval "$play_files --playlist=/tmp/fzplayer-playlist" # We have to use an eval of $play_files here because this allows using double quotes; if we make a function instead, then the $mpv_opts and $mpvui are not correctly expanded, even with double quotes
 		    ;;
-                edit)
+		edit)
 		    # Invoke $EDITOR on the corresponding $HISTORY_DIR/YYYYMMDD_folderdepth2>folderdepth3 file
 		    # Alternatively, revert to vim
 		    # This option is only available while in History fzf prompt
-		    if [ "$mode" == "continue" ]; then
-		        local file_to_edit=$(ls -t "$HISTORY_DIR" | fzf --prompt="Select playlist to edit > ")
-		        [ -n "$file_to_edit" ] && ${EDITOR:-vim} "$HISTORY_DIR/$file_to_edit"
+		    if [[ "$mode" == "continue" ]]; then
+			eval "${EDITOR:-vim} \"$(realpath "$selection")\""
+		    fi
+		    ;;
+		rename)
+		    # Rename or make a copy of the corresponding $HISTORY_DIR/YYYYMMDD_folderdepth2>folderdepth3 file
+		    # This option is only available while in History fzf prompt
+		    if [[ "$mode" == "continue" ]]; then
+			current_name=$(basename "$selection")
+			read -r -p "Rename: \"$current_name\" to (enter the same name to make a copy): " n
+
+			# Check if the new name is valid
+			if [[ -z "$n" ]]; then
+			    echo -e "\033[31mError:\033[0m Name cannot be empty." && sleep 1
+			elif [[ "$n" == *"../"* || "$n" == *"/.."* ]]; then
+			    echo -e "\033[31mError:\033[0m Invalid name. Escalating into upper folders is not allowed." && sleep 1
+			else
+			    new_path="$(dirname "$selection")/$n"
+			    if [[ "$new_path" == "$HISTORY_DIR"* ]]; then
+				if [[ "$n" == "$current_name" ]]; then
+				    datetime=$(date +%Y%m%d_%H%M%S)
+				    copy_path="${new_path}_${datetime}_copy"
+				    cp -i -v "$selection" "$copy_path"
+				else
+				    mv -i -v "$selection" "$new_path"
+				fi
+			    else
+				echo -e "\033[31mError:\033[0m Invalid destination path." && sleep 1
+			    fi
+			fi
+		    fi
+		    ;;
+                delete)
+		    # Invoke $EDITOR on the corresponding $HISTORY_DIR/YYYYMMDD_folderdepth2>folderdepth3 file
+		    # Alternatively, revert to vim
+		    # This option is only available while in History fzf prompt
+		    if [[ "$mode" == "continue" ]]; then
+		        rm -i "$(realpath "$selection")"
 		    fi
                     ;;
                 cddown)
@@ -374,7 +466,7 @@ main() {
                         echo "on" > /tmp/fzplayer-preview
 			case "$mode" in
 			    continue)
-				fzf_preview="cat {} | rev | cut -d / -f -2 | rev" ;;
+				fzf_preview="printf 'Tracks: ' && wc -l < {} && printf '\n' && cat -n {} | rev | cut -d / -f -2 | rev" ;;
 			    files)
 				fzf_preview="soxi {}" ;;
 			    *)
@@ -395,7 +487,7 @@ main() {
                             "on")
 				case "$mode" in
                                     continue)
-					fzf_preview="cat {} | rev | cut -d / -f -2 | rev" ;;
+					fzf_preview="printf 'Tracks: ' && wc -l < {} && printf '\n' && cat -n {} | rev | cut -d / -f -2 | rev" ;;
                                     files)
 					fzf_preview="soxi {}" ;;
                                     *)
@@ -426,7 +518,9 @@ main() {
   \033[1;7m abc \033[0;27m fuzzy search
   \033[1;7m ← → \033[0;27m exit/enter directory
   \033[1;7m ↑ ↓ \033[0;27m move cursor up/down
-  \033[1;7m Ent \033[0;27m create playlist from selection and play
+  \033[1;7m Ent \033[0;27m Add selection to tmp playlist and play
+  \033[1;7m C-s \033[0;27m Save selection to new playist and play
+  \033[1;7m C-a \033[0;27m Append to tmp playlist queue
   \033[1;7m C-q \033[0;27m clear search or quit
 
   Mode
@@ -445,6 +539,7 @@ main() {
   History
 
   \033[1;7m C-e \033[0;27m edit playlist
+  \033[1;7m C-r \033[0;27m rename playlist
   \033[1;7m Del \033[0;27m delete playlist
 
 '
@@ -456,7 +551,7 @@ main() {
                             "on")
 				case "$mode" in
                                     continue)
-					fzf_preview="cat {} | rev | cut -d / -f -2 | rev" ;;
+					fzf_preview="printf 'Tracks: ' && wc -l < {} && printf '\n' && cat -n {} | rev | cut -d / -f -2 | rev" ;;
                                     files)
 					fzf_preview="soxi {}" ;;
                                     *)
@@ -486,6 +581,7 @@ main() {
 }	
 
 # Main script logic
+check_dependencies
 clear
 parse_args "$@"
 
@@ -494,7 +590,7 @@ case "$mode" in
         filter="--type f"
         filter2="."
         fzf_prompt='History > '
-        fzf_preview="cat {} | rev | cut -d / -f -2 | rev"
+        fzf_preview="printf 'Tracks: ' && wc -l < {} && printf '\n' && cat -n {} | rev | cut -d / -f -2 | rev"
         fzf_preview_window="45%,border-left,nowrap"
         fzf_header='
 ? Help
@@ -527,101 +623,3 @@ case "$mode" in
         main "$path" "$mode"
         ;;
 esac
-
-
-
-
-
-
-
-
-###
-# Old function
-fzf_browser() {
-    local dir="1"
-    local mode="$2"
-    
-    cd "$HISTORY_DIR" || { echo "Invalid history directory: '$HISTORY_DIR'"; exit 1; }
-    cd "$dir" || { echo "Invalid media directory: '$dir'"; exit 1; }
-
-    echo "$HISTORY_DIR" > /tmp/fzplayer-dirs
-    echo "$dir" >> /tmp/fzplayer-dirs
-
-    cat /dev/null > /tmp/fzplayer-playlist
-    cat /dev/null > /tmp/fzplayer-playlist-name
-    cat /dev/null > /tmp/fzplayer-arg
-    
-    # Modified bind action to handle both directories and files
-    list | sort | sed 's|^\./||' | fzf --ansi --sync --multi --height=100% --border=none --delimiter="/" --with-nth=-2..-1 \
-    --prompt="$fzf_prompt" \
-    --header="$fzf_header" \
-    --preview="$fzf_preview" \
-    --preview-window="$fzf_preview_window" \
-    --bind="enter:execute(
-        echo {} | sed 's|/| > |g' > /tmp/fzplayer-playlist-name && \
-        (if [ -d {} ]; then \
-            fd . --min-depth 1 --max-depth 5 --type f -e mp3 -e m4a -e flac -e wav -e ogg $(realpath {}) | sort | sed 's|^\./||'; \
-        else \
-            echo {} | sed 's|^\./||'; \
-        fi) > /tmp/fzplayer-playlist && \
-	clear && printf '\033[34mPlaying %s (%s file(s)):\033[0m\n\n' {} $(wc -l < /tmp/fzplayer-playlist) && \
-        head /tmp/fzplayer-playlist -n 40 | rev | cut -d / -f 1 | rev | sed 's|^|  |' | column -c $(tput cols) -x && printf '\n' && \
-	printf '\033[34m\nKeybindings:\033[0m\n\n  q: stop playback and go back\n  space: play/pause\n  arrows: seek\n  </>: prev/next in playlist\n  9/0/m: vol-/vol+/mute\n  F8: show playlist\n  _: toggle graphical interface (sixel or gui, as set in configuration or at runtime)\n\n' & \
-        mpv $mpv_opts $mpvui --playlist=/tmp/fzplayer-playlist)" \
-    --bind='ctrl-x:+change-preview(echo -e "\033[5;1m♫\033[25;0m AUDIO PREVIEW\n\n\033[2mPress C-c to stop\033[0m" && mpv --no-config --no-video --really-quiet {})' \
-    --bind='ctrl-x:+change-preview-window(45%,border-left,nowrap)' \
-    --bind='ctrl-x:+refresh-preview' \
-    --bind='ctrl-c:execute-silent(pkill play)' \
-    --bind='ctrl-c:+change-preview(tree -C {} | sed 's/[│├─└]/ /g')' \
-    --bind='ctrl-c:+refresh-preview' \
-    --bind='ctrl-d:change-prompt(Directories > )' \
-    --bind='ctrl-d:+reload(fd . --min-depth 1 --max-depth 1 --type d $(tail /tmp/fzplayer-dirs -n 1) | sort | sed "s|^\./||")' \
-    --bind='ctrl-d:+change-preview(tree -C {} | sed 's/[│├─└]/ /g')' \
-    --bind='ctrl-d:+change-preview-window(45%,border-left,nowrap)' \
-    --bind='ctrl-d:+refresh-preview' \
-    --bind='ctrl-f:change-prompt(Files > )' \
-    --bind='ctrl-f:+reload(fd . --min-depth 1 --max-depth 5 --type f --color=always -e mp3 -e m4a -e flac -e wav -e ogg $(tail /tmp/fzplayer-dirs -n 1) | sort | sed "s|^\./||")' \
-    --bind='ctrl-f:+change-preview(printf \\033[34m{} | sed "s|$(tail -n 1 /tmp/fzplayer-dirs)/||" | xargs -I {} dirname {} && printf \\033[0m && soxi {})' \
-    --bind='ctrl-f:+change-preview-window(45%,border-left,nowrap)' \
-    --bind='ctrl-f:+refresh-preview' \
-    --bind='ctrl-delete:execute(rm -i {})+reload(fd --min-depth 1 --max-depth 1 --type f $(head /tmp/fzplayer-dirs -n 1) | sort)' \
-    --bind='ctrl-h:change-prompt(History > )' \
-    --bind='ctrl-e:execute(echo 'edit' > /tmp/fzplayer-arg {})' \
-    --bind='ctrl-h:+reload(fd . --min-depth 1 --max-depth 1 --type f $(head /tmp/fzplayer-dirs -n 1) | sort)' \
-    --bind='ctrl-h:+change-preview(cat {} | rev | cut -d / -f -2 | rev)' \
-    --bind='ctrl-h:+change-preview-window(45%,border-left,nowrap)' \
-    --bind='ctrl-h:+refresh-preview' \
-    --bind='ctrl-h:+change-header(
-C-d: display directories        C-e: edit playlist
-C-f: display files              Del: delete playlist 
-C-p: toggle preview panel
-Tab: select
-C-a: select all
-C-w: deselect all
-Ent: play selection as a playlist (main action)
-
-)' \
-    --bind='ctrl-d:+change-header(
-C-f: display files
-C-h: display history
-C-p: toggle preview panel
-Tab: select
-C-a: select all
-C-w: deselect all
-Ent: play selection as a playlist (main action)
-
-)' \
-    --bind='ctrl-f:+change-header(
-C-d: display directories        C-x: enable audio preview
-C-h: display history            C-c: disable audio preview
-C-p: toggle preview panel
-Tab: select
-C-a: select all
-C-w: deselect all
-Ent: play selection as a playlist (main action)
-
-)' \
-    --bind='ctrl-a:select-all' \
-    --bind='ctrl-w:deselect-all' \
-    --bind='ctrl-p:toggle-preview'
-}

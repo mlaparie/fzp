@@ -50,16 +50,16 @@ local function print_rolling_playlist(lines, current_index)
     
     local formatted_output = ""
     if start_index > 1 then
-        formatted_output = formatted_output .. string.format("  ↑ (%d hidden items)\n", start_index - 1)
+        formatted_output = formatted_output .. string.format("  \\033[30m↑ (%d hidden items)\\033[0m\n", start_index - 1)
     end
     for i = start_index, end_index do
-        local prefix = (i == current_index) and "  ● " or "  ○ "
-        formatted_output = formatted_output .. prefix .. lines[i] .. "\n"
+        local prefix = (i == current_index) and "  \\033[37m●\\033[0m " or "  ○ "
+        formatted_output = formatted_output .. prefix .. "\\033[2m" .. lines[i] .. "\\033[0m\n"
     end
     if end_index < num_files then
-        formatted_output = formatted_output .. string.format("  ↓ (%d hidden items)\n", num_files - end_index)
+        formatted_output = formatted_output .. string.format("  \\033[30m↓ (%d hidden items)\\033[0m\n", num_files - end_index)
     elseif end_index == num_files and num_files > 10 then
-        formatted_output = formatted_output .. "  …\n"
+        formatted_output = formatted_output .. "  \\033[30m…\\033[0m\n"
     end
 
     return formatted_output
@@ -67,7 +67,7 @@ end
 
 -- Function to get the current file index
 local function get_current_file_index(lines)
-    local current_file = mp.get_property("filename")
+    local current_file = mp.get_property("media-title")
     if not current_file then
         return 1 -- Default to the first file if current_file is nil
     end
@@ -78,6 +78,10 @@ local function get_current_file_index(lines)
     end
     return 1 -- Default to the first file if not found
 end
+
+-- Variables to track visibility states
+local show_keybindings = false
+local show_playlist = true
 
 -- Function to print the playlist, keybindings, and additional message
 local function print_playlist_and_keybindings()
@@ -97,17 +101,19 @@ local function print_playlist_and_keybindings()
     local current_and_parent_folder = get_current_and_parent_folder()
 
     -- Formatted message
-    local playing_message = string.format("printf '\\033[34mPlaying %s (%d on %s file(s)):\\033[0m\n\n'", current_and_parent_folder, current_index, file_count)
+    local playing_message = string.format("printf '\\033[36mPlaying %s (%d on %s file(s)):\\033[0m\n\n'", current_and_parent_folder, current_index, file_count)
 
     -- Keybindings
     local keybindings = [[
-printf '\033[34mKeybindings:\033[0m
+printf '\033[36mKeybindings:\033[0m
 
-  \033[1;7m space \033[0;27m play/pause              \033[1;7m 9 0 m \033[0;27m vol-/vol+/mute
-  \033[1;7m   ← → \033[0;27m seek -5/+5 seconds      \033[1;7m     l \033[0;27m A/B loop
-  \033[1;7m   ↑ ↓ \033[0;27m seek -60/+60 seconds    \033[1;7m    F8 \033[0;27m show playlist
-  \033[1;7m   < > \033[0;27m prev/next track         \033[1;7m     _ \033[0;27m toggle interface type\033[0m
-  \033[1;7m     L \033[0;27m repeat track            \033[1;7m     q \033[0;27m stop playback and go back 
+  \033[1;7m  space \033[0;27m  \033[2mplay/pause \033[0m                \033[1;7m     l \033[0;27m  \033[2mA/B loop \033[0m
+  \033[1;7m    ← → \033[0;27m  \033[2mseek -5/+5 seconds \033[0m        \033[1;7m     v \033[0;27m  \033[2mtoggle .lrc lyrics \033[0m
+  \033[1;7m    ↑ ↓ \033[0;27m  \033[2mseek -60/+60 seconds \033[0m      \033[1;7m     P \033[0;27m  \033[2mtoggle playlist \033[0m
+  \033[1;7m [ ] ⌫  \033[0;27m  \033[2mdec/inc/reset speed \033[0m       \033[1;7m     M \033[0;27m  \033[2mtoggle minimal TUI \033[0m
+  \033[1;7m    < > \033[0;27m  \033[2mprev/next track \033[0m           \033[1;7m     _ \033[0;27m  \033[2mtoggle cover art \033[0m
+  \033[1;7m      L \033[0;27m  \033[2mrepeat track \033[0m              \033[1;7m     ? \033[0;27m  \033[2mtoggle help   \033[0m
+  \033[1;7m  9 0 m \033[0;27m  \033[2mvol-/vol+/mute \033[0m            \033[1;7m     q \033[0;27m  \033[2mstop and go to browser \033[0m
 
 '
 ]]
@@ -115,20 +121,27 @@ printf '\033[34mKeybindings:\033[0m
     -- Clear the terminal
     mp.command('run clear')
 
-    -- Print the keybindings
-    os.execute(keybindings)
-
+    -- Conditionally print the keybindings
+    if show_keybindings then
+        os.execute(keybindings)
+    else
+        os.execute('printf "\\033[2m? Help\\033[27;0m\n\n"')
+    end
+    
     -- Print the playing message
     os.execute(playing_message)
     
-    -- Print the playlist
-    io.write(playlist_output)
-    io.write("\n") -- Add an empty line after the playlist output
+    -- Conditionally print the playlist
+    if show_playlist then
+        local playlist_output_cmd = string.format('printf "%s"', playlist_output)
+        os.execute(playlist_output_cmd)
+        io.write("\n") -- Add an empty line after the playlist output
+    end
 end
 
 -- Function to toggle the screen state between mpv and fzf
 local screen_toggled = false
-local function toggle_screen()
+local function toggle_all()
     if screen_toggled then
         -- Clear the terminal and print the playlist
         print_playlist_and_keybindings()
@@ -141,6 +154,18 @@ local function toggle_screen()
     end
 end
 
+-- Function to toggle keybindings display
+local function toggle_help()
+    show_keybindings = not show_keybindings
+    print_playlist_and_keybindings()
+end
+
+-- Function to toggle playlist display
+local function toggle_playlist()
+    show_playlist = not show_playlist
+    print_playlist_and_keybindings()
+end
+
 -- Register event to clear the terminal and print playlist, keybindings, and additional message on end-file
 mp.register_event('end-file', function()
     print_playlist_and_keybindings()
@@ -151,5 +176,7 @@ mp.register_event('file-loaded', function()
     print_playlist_and_keybindings()
 end)
 
--- Add keybinding to toggle the screen state
-mp.add_key_binding("ctrl+g", "toggle-screen", toggle_screen)
+-- Add keybindings to toggle the screen state, keybindings, and playlist
+mp.add_key_binding("M", "toggle-all", toggle_all)
+mp.add_key_binding("?", "toggle-keybindings", toggle_help)
+mp.add_key_binding("P", "toggle-playlist", toggle_playlist)
