@@ -101,7 +101,7 @@ local function print_playlist_and_keybindings()
     local current_and_parent_folder = get_current_and_parent_folder()
 
     -- Formatted message
-    local playing_message = string.format("printf '\\033[36mPlaying %s (%d on %s file(s)):\\033[0m\n\n'", current_and_parent_folder, current_index, file_count)
+    local playing_message = string.format("printf '\\033[36mPlaying %s (%d on %s file(s))\\033[0m\n\n'", current_and_parent_folder, current_index, file_count)
 
     -- Keybindings
     local keybindings = [[

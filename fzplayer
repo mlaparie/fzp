@@ -21,60 +21,24 @@ luascript="yes"
 if [ "$luascript" = "yes" ]; then
     script="--script=$CONFIG_DIR/fzplayer.lua"
 fi
+BASE_PATH=""
 
 # Define text status format
 text_status="'\${?pause==no:$(printf \\033[1\;5\;35m)▶ }\${?pause==yes:$(printf \\033[1\;5\;33m)⏸ }$(printf \\033[25m)\${percent-pos}% [\${time-pos}/\${duration}\${!speed==1: × \${speed}}]$(printf \\033[0m) $(printf \\033[1m)\${filename/no-ext}$(printf \\033[0m) \${?mute==yes:| $(printf \\033[36m)muted}$(printf \\033[0m) '"
 
-# Define mpv options
-mpv_opts="--no-config --ao=pulse --osd-level=0 --profile=sw-fast $script --cover-art-auto=no --watch-later-dir=$HOME/.local/state/mpv/watch_later --save-position-on-quit --script-opts=osc-visibility=always,tick_delay=1 --msg-level=all=error,statusline=status --term-status-msg=$text_status"
-
-# Link temporary playlist to history directory
-ln -s /tmp/fzplayer-playlist "$HISTORY_DIR"/tmp 2>/dev/null
-
-mode=""
-path=""
-dummy_text="'$(printf \\033)'"
-show_help=false
-audio_preview=false
-
-# Configure mpv interface based on the specified interface
-case "$interface" in
-    text)
-        if [ "$secondary_interface" = "gui" ]; then
-            secondary_interface="gui" # ""
-        fi
-        mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
-        echo "$mpvui" > /tmp/fzplayer-mpv.confxs
-        ;;
-    sixel)
-        mpvui="--vo=sixel --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
-        echo "$mpvui" > /tmp/fzplayer-mpv.conf
-        ;;
-    gui)
-        mpvui="--input-conf='memory://_ cycle vid'"
-        echo "--no-video" > /tmp/fzplayer-mpv.conf
-        echo "$mpvui" >> /tmp/fzplayer-mpv.conf
-        ;;
-    *)
-        echo "Error: Invalid value for --interface. Use one of (text, sixel, gui)"
-        exit 1
-        ;;
-esac
-sed -i 's|--|\n--|g' /tmp/fzplayer-mpv.conf
-
-# Create necessary directories if they don't exist
-mkdir -p "$HISTORY_DIR"
+mpv_opts_base="--no-config --ao=pulse --osd-level=0 --profile=sw-fast $script --cover-art-auto=no --watch-later-dir=$HOME/.local/state/mpv/watch_later --save-position-on-quit --script-opts=osc-visibility=always,tick_delay=1 --msg-level=all=error,statusline=status --term-status-msg=$text_status"
 
 # Function to display help menu
 show_help() {
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
-    echo "  -c, --continue           Resume playback from history"
-    echo "  -f, --files              List audio files instead of directories"
-    echo "  -i, --interface <value>  Set primary playback interface (text, sixel, gui)"
-    echo "  -p, --path <path>        Set path to media"
-    echo "  -h, --help               Show this help message and exit"
+    echo "  -d, --dirs, --directories     List directories only (default)"
+    echo "  -f, --files                   List audio files recursively with directories"
+    echo "  -c, --continue, --history     Resume playback from history"
+    echo "  -i, --interface <value>       Set primary playback interface (text, sixel, gui)"
+    echo "  -p, --path <path>             Set path to media"
+    echo "  -h, --help                    Show this help message and exit"
 }
 
 # Check dependencies
@@ -129,17 +93,17 @@ parse_args() {
             -f|--files)
                 mode="files"
                 ;;
+            -d|--dirs|--directories)
+                mode="dirs"
+                ;;
             -i|--interface)
                 shift
                 if [ -z "$1" ]; then
-                    echo "Error: --interface requires a value (none, sixel, gui)"
+                    echo "Error: --interface requires a value among (none, sixel, gui)"
                     exit 1
                 fi
                 case "$1" in
                     text)
-                        if [ "$secondary_interface" = "gui" ]; then
-                            secondary_interface="gui" # ""
-                        fi
                         mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
                         ;;
                     sixel)
@@ -149,6 +113,9 @@ parse_args() {
                         mpvui="--input-conf='memory://_ cycle vid'"
                         ;;
                     *)
+                        echo "Error: --interface requires a value among (none, sixel, gui)"
+                        exit 1
+                        ;;
                 esac
                 ;;
             -p|--path)
@@ -158,6 +125,7 @@ parse_args() {
                     path=$(realpath "$media")
                 else
                     path=$(realpath "$1")
+                    BASE_PATH="$path"
                 fi
                 ;;
             *)
@@ -172,11 +140,33 @@ parse_args() {
     # Set default path if not provided
     if [ -z "$path" ]; then
         path=$(realpath "$media")
+        BASE_PATH="$path"
     fi
 }
 
+# Configure mpv interface based on the specified interface in configuration or command line
+configure_mpv_interface() {
+    case "$interface" in
+        text)
+            mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
+            ;;
+        sixel)
+            mpvui="--vo=sixel --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
+            ;;
+        gui)
+            mpvui="--input-conf='memory://_ cycle vid'"
+            ;;
+        *)
+            echo "Error: Invalid value for --interface. Use one of (text, sixel, gui)"
+            exit 1
+            ;;
+    esac
+}
+
 # Function to play selected files
-play_files="mpv $mpv_opts $mpvui" # We have to use an eval of $play_files here because this allows using double quotes; if we make a function instead, then the $mpv_opts and $mpvui are not correctly expanded, even with double quotes
+play_files() {
+    eval "mpv $mpv_opts_base $mpvui $@"
+}
 
 # Basic file browser with directory and file preview
 fdfun() {
@@ -184,10 +174,7 @@ fdfun() {
 }
 
 # Main function
-# issues:
-# - flicker due to loop: cannot be solved?
 main() {
-    
     echo "$HISTORY_DIR" > /tmp/fzplayer-dirs
     cd "$1" 2>/dev/null || { echo "Invalid media directory: '$1'"; exit 1; }
     echo "$1" >> /tmp/fzplayer-dirs
@@ -200,14 +187,14 @@ main() {
 
     while :; do
 
-        if [[ -z "$dir" ]]; then
-            dir="$media"
-        elif [[ -f "$dir" ]]; then
-            dir="$(dirname "$dir")"
-        fi
+	if [[ -z "$dir" ]]; then
+	    dir="$1"
+	elif [[ -f "$dir" ]]; then
+	    dir="$(dirname "$dir")"
+	fi
         
         if [[ "$mode" == "history" ]]; then
-	    dir="$HISTORY_DIR"
+            dir="$HISTORY_DIR"
             folder=""
             reverse="--reverse"
         else
@@ -333,7 +320,7 @@ main() {
                     fi
                     last="$(tail -n 1 /tmp/fzplayer-pos)"
                     head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
-                    eval "$play_files --playlist=/tmp/fzplayer-playlist" # We have to use an eval of $play_files here because this allows using double quotes; if we make a function instead, then the $mpv_opts and $mpvui are not correctly expanded, even with double quotes
+                    play_files --playlist=/tmp/fzplayer-playlist
                     ;;
                 add)
                     # Similar to "play" but append to /tmp/fzplayer-playlist without relaunching mpv, i.e., add to queue
@@ -356,7 +343,7 @@ main() {
                     last="$(tail -n 1 /tmp/fzplayer-pos)"
                     head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
                     cp /tmp/fzplayer-playlist "$HISTORY_DIR/${datetime}"
-                    eval "$play_files --playlist=/tmp/fzplayer-playlist" # We have to use an eval of $play_files here because this allows using double quotes; if we make a function instead, then the $mpv_opts and $mpvui are not correctly expanded, even with double quotes
+                    play_files --playlist=/tmp/fzplayer-playlist
                     ;;
                 edit)
                     # Invoke $EDITOR on the corresponding $HISTORY_DIR/YYYYMMDD_folderdepth2>folderdepth3 file
@@ -422,39 +409,47 @@ main() {
                     fi
                     continue
                     ;;
-                cdup)
-                    # cd into parent directory and relaunch main()
-                    par_dir="$(realpath "$(dirname "$dir")")"
-                    if [[ -n "$par_dir" && "$mode" != "files" && "$(realpath "$dir")" != "$(realpath "$media")" ]]; then
-                        dir="$par_dir"
-                        last="$(tail -n 1 /tmp/fzplayer-pos)"
-                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$dir")" != "$(realpath "$media")" ]]; then
-                        case "$dir" in
-                            "$from_dir")
-                                dir="$media"
-                                last="" ;;
-                            *)
-                                dir="$from_dir"
-                                last="$(tail -n 1 /tmp/fzplayer-pos)" ;;
-                        esac
-                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$dir")" == "$(realpath "$media")" ]]; then
-                        last=""
-                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")" ]]; then
-                        dir="$media"
-                        last="$(tail -n 1 /tmp/fzplayer-pos)"
-                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")"/* && "$(realpath "$from_dir")" == "$(realpath "$dir")" ]]; then
-                        dir="$(realpath "$(dirname "$dir")")"
-                        last=""
-                    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")"/* && "$(realpath "$from_dir")" != "$(realpath "$dir")" ]]; then
-                        dir="$from_dir"
-                        last="$(tail -n 1 /tmp/fzplayer-pos)"
-                    elif [[ -n "$par_dir" && "$(realpath "$par_dir")" == "$(realpath "$media")"/* && "$(realpath "$par_dir")" != "$(realpath "$dir")" ]]; then
-                        dir="$par_dir"
-                        last="$(tail -n 1 /tmp/fzplayer-pos)"
-                    fi
-                    head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
-                    continue
-                    ;;
+		cdup)
+		    # cd into parent directory and relaunch main()
+		    par_dir="$(realpath "$(dirname "$dir")")"
+		    if [[ -n "$par_dir" && "$mode" != "files" && "$(realpath "$dir")" != "$(realpath "$media")" ]]; then
+			if [[ "$par_dir" == "$BASE_PATH" || "$par_dir" == "${BASE_PATH}"/* ]]; then
+			    dir="$par_dir"
+			    last="$(tail -n 1 /tmp/fzplayer-pos)"
+			else
+			    echo "Already at the base path, cannot move up further."
+			fi
+		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$dir")" != "$(realpath "$media")" ]]; then
+			if [[ "$par_dir" == "$BASE_PATH" || "$par_dir" == "${BASE_PATH}"/* ]]; then
+			    case "$dir" in
+				"$from_dir")
+				    dir="$media"
+				    last="" ;;
+				*)
+				    dir="$from_dir"
+				    last="$(tail -n 1 /tmp/fzplayer-pos)" ;;
+			    esac
+			else
+			    echo "Already at the base path, cannot move up further."
+			fi
+		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$dir")" == "$(realpath "$media")" ]]; then
+			last=""
+		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")" ]]; then
+			dir="$media"
+			last="$(tail -n 1 /tmp/fzplayer-pos)"
+		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")"/* && "$(realpath "$from_dir")" == "$(realpath "$dir")" ]]; then
+			dir="$(realpath "$(dirname "$dir")")"
+			last=""
+		    elif [[ -n "$par_dir" && "$mode" == "files" && "$(realpath "$from_dir")" == "$(realpath "$media")"/* && "$(realpath "$from_dir")" != "$(realpath "$dir")" ]]; then
+			dir="$from_dir"
+			last="$(tail -n 1 /tmp/fzplayer-pos)"
+		    elif [[ -n "$par_dir" && "$(realpath "$par_dir")" == "$(realpath "$media")"/* && "$(realpath "$par_dir")" != "$(realpath "$dir")" ]]; then
+			dir="$par_dir"
+			last="$(tail -n 1 /tmp/fzplayer-pos)"
+		    fi
+		    head -n -1 /tmp/fzplayer-pos > /tmp/fzplayer-pos.tmp && mv /tmp/fzplayer-pos.tmp /tmp/fzplayer-pos
+		    continue
+		    ;;
                 preview-toggled)
                     # Toggle the preview panel on/off
                     if [[ $(cat /tmp/fzplayer-preview) == "on" || $(cat /tmp/fzplayer-preview) == "audio-on" ]]; then 
@@ -589,6 +584,7 @@ main() {
 check_dependencies
 clear
 parse_args "$@"
+configure_mpv_interface
 
 case "$mode" in
     history)
@@ -601,7 +597,7 @@ case "$mode" in
 ? Help
 
 '
-        main "$HISTORY_DIR" "$mode"
+        main "$HISTORY_DIR"
         ;;
     files)
         filter='--type f'
@@ -613,9 +609,9 @@ case "$mode" in
 ? Help
 
 '
-        main "$path" "$mode"
+        main "$path"
         ;;
-    "")
+    ""|dirs)
         mode="dirs"
         filter='--type d'
         filter2="."
@@ -626,6 +622,6 @@ case "$mode" in
 ? Help
 
 '
-        main "$path" "$mode"
+        main "$path"
         ;;
 esac
