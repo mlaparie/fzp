@@ -7,10 +7,11 @@ CONFIG_DIR="$HOME/.config/fzplayer"
 HISTORY_DIR="$CONFIG_DIR/history" # Rename to history later
 
 # Set default playback interface: one of "text", "sixel" or "gui"
-interface="text"
+# "text" has no benefit over "sixel" when the lua script below is enabled
+interface="sixel"
 
-# Set alternate playback interface (_ key): one of "sixel" or "gui", only used when the primary is "text"
-secondary_interface="sixel"
+# Set alternate playback interface (_ key): one of "sixel" or "gui"
+secondary_interface="gui"
 
 # Use supplied lua script to format output, recommended
 luascript="yes"
