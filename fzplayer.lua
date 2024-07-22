@@ -1,13 +1,11 @@
-local msg = require 'mp.msg'
+local mp = require 'mp'
 local utils = require 'mp.utils'
 
 -- Function to get the current folder name and its parent directory
 local function get_current_and_parent_folder()
     local path = mp.get_property("path")
     if path then
-        -- Escape single quotes in the path
         path = path:gsub("'", "'\\''")
-        -- Use Lua's built-in functions to extract the directory and basename
         local folder_path = path:match("(.*/)")
         if folder_path then
             local current_folder = folder_path:match("([^/]+)/$")
@@ -23,21 +21,12 @@ local function get_current_and_parent_folder()
     return "Unknown"
 end
 
--- Function to run a shell command and capture its output
-local function run_command(cmd)
-    local file = assert(io.popen(cmd, 'r'))
-    local output = file:read('*all')
-    file:close()
-    return output
-end
-
--- Function to get the playlist lines
-local function get_playlist_lines(file_path)
+-- Function to get the playlist lines using mpv's property
+local function get_playlist_lines()
+    local playlist = mp.get_property_native('playlist')
     local lines = {}
-    local cmd = string.format("cat '%s' | rev | cut -d / -f 1 | rev", file_path)
-    local output = run_command(cmd)
-    for line in output:gmatch("[^\r\n]+") do
-        table.insert(lines, line)
+    for _, item in ipairs(playlist) do
+        table.insert(lines, item.title or item.filename)
     end
     return lines
 end
@@ -69,14 +58,14 @@ end
 local function get_current_file_index(lines)
     local current_file = mp.get_property("media-title")
     if not current_file then
-        return 1 -- Default to the first file if current_file is nil
+        return 1
     end
     for i, line in ipairs(lines) do
         if line:find(current_file, 1, true) then
             return i
         end
     end
-    return 1 -- Default to the first file if not found
+    return 1
 end
 
 -- Variables to track visibility states
@@ -86,22 +75,18 @@ local show_playlist = true
 -- Function to print the playlist, keybindings, and additional message
 local function print_playlist_and_keybindings()
     -- Get the playlist lines
-    local lines = get_playlist_lines("/tmp/fzplayer-playlist")
+    local lines = get_playlist_lines()
     local current_index = get_current_file_index(lines)
     local num_files = #lines
 
     -- Get the rolling playlist output
     local playlist_output = print_rolling_playlist(lines, current_index)
 
-    -- Command to count the number of lines in the playlist
-    local file_count_cmd = "wc -l < /tmp/fzplayer-playlist"
-    local file_count = run_command(file_count_cmd):gsub("\n", "")
-
     -- Get the current and parent folder name
     local current_and_parent_folder = get_current_and_parent_folder()
 
     -- Formatted message
-    local playing_message = string.format("printf '\\033[36mPlaying %s (%d on %s file(s))\\033[0m\n\n'", current_and_parent_folder, current_index, file_count)
+    local playing_message = string.format("printf '\\033[36mPlaying %s (%d on %d file(s))\\033[0m\n\n'", current_and_parent_folder, current_index, num_files)
 
     -- Keybindings
     local keybindings = [[
@@ -143,11 +128,9 @@ end
 local screen_toggled = false
 local function toggle_all()
     if screen_toggled then
-        -- Clear the terminal and print the playlist
         print_playlist_and_keybindings()
         screen_toggled = false
     else
-        -- Clear the terminal and send mpv to the background
         mp.command('run clear')
         mp.command_native({"script-message", "osc", "no-osd"})
         screen_toggled = true
