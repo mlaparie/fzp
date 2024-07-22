@@ -6,13 +6,20 @@ media="$HOME/Music/"
 CONFIG_DIR="$HOME/.config/fzp"
 HISTORY_DIR="$CONFIG_DIR/history"
 
-# Set default playback interface: one of "text", "sixel" or "gui"
-# "text" has no benefit over "sixel" when the lua script below is enabled
+# Set default playback interface: one of "tui" or "gui":
+# "gui" automatically opens a mpv window on top of fzp, and the extra
+# window can be hidden without interrupting playback ("tui" mode) on a,
+# key press, while setting this to "tui" will default to not opening a mpv
+# window, but can also be toggled during playback, see alt_interface below
+interface="tui"
 
-interface="sixel"
-
-# Set alternate playback interface (_ key): one of "sixel" or "gui"
-secondary_interface="gui"
+# Set secondary playback interface ('_' key): one of "sixel" or "gui"
+# "gui" will open a separate mpv window upon pressing that key, while
+# "sixel" will show the mpv interface within the fzp window; the latter
+# requires a compatible terminal emulator and mpv built with libsixel
+# This option has no effect if the primary interface is "gui", in which
+# case the '_' key will always switch to "tui" (sixel switching not supported)
+alt_interface="gui"
 
 # Use supplied lua script to format output, recommended
 luascript="yes"
@@ -46,8 +53,9 @@ show_help() {
     echo "  -d, --dirs, --directories     List directories only (default)"
     echo "  -f, --files                   List audio files recursively with directories"
     echo "  -c, --continue, --history     Resume playback from history"
-    echo "  -i, --interface <value>       Set primary playback interface (text, sixel, gui)"
-    echo "  -p, --path <path>             Set path to media"
+    echo "  -i, --interface <value>       Primary playback interface: tui (default) or gui"
+    echo "  -a, --alt-interface <value>   Set alternate interface if primary is tui: gui (default) or sixel"
+    echo "  -p, --path <path>             PSet path to media (default: ~/Music)"
     echo "  -h, --help                    Show this help message and exit"
     echo ""
 }
@@ -110,15 +118,23 @@ parse_args() {
             -i|--interface)
                 shift
                 if [ -z "$1" ]; then
-                    echo "Error: --interface requires a value among (text, sixel, gui)"
+                    echo "Error: --interface requires a value among (tui, gui)."
                     exit 1
                 fi
-                interface="$1"  # Set the interface variable
+                interface="$1"  # Set the primary_interface variable
+                ;;
+            -a|--alt-interface)
+                shift
+                if [ -z "$1" ]; then
+                    echo "Error: --alt-interface requires a value among (sixel, gui)."
+                    exit 1
+                fi
+                alt_interface="$1"  # Set the secondary_interface variable
                 ;;
             -p|--path)
                 shift
                 if [ -z "$1" ]; then
-                    echo "Warning: --path requires a value. Using default"
+                    echo "Warning: --path requires a value. Using default."
                     path=$(realpath "$media")
                 else
                     path=$(realpath "$1")
@@ -143,19 +159,33 @@ parse_args() {
 
 # Configure mpv interface based on the specified interface in configuration or command line
 configure_mpv_interface() {
+    # Priority to runtime arguments over configuration
+    if [[ -n "$alt_interface" ]]; then
+	secondary_interface="$alt_interface"
+    fi
+    
     case "$interface" in
-        text)
-            mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
-            ;;
-        sixel)
-            mpv_opts_base="${mpv_opts_base/--term-status-msg=$text_status/--term-status-msg=''}"  # Mute term-status-msg
-            mpvui="--vo=sixel --input-conf='memory://_ cycle-values term-status-msg $dummy_text \"\"; cycle vid'"
+        tui)
+	    if [[ "$secondary_interface" == "gui" ]]; then
+	        secondary_interface=""
+		mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle vid'"
+	    elif [[ "$secondary_interface" == "sixel" ]]; then
+		mpvui="--vo=$secondary_interface --no-video --input-conf='memory://_ cycle-values term-status-msg $dummy_text ${text_status//\'/\"}; cycle vid'"
+	    else
+		echo "Error: Invalid value for --secondary-interface. Use sixel or gui."
+		exit 1
+	    fi
             ;;
         gui)
-            mpvui="--input-conf='memory://_ cycle vid'"
+	    if [[ -n "$secondary_interface" && "$secondary_interface" != "tui" ]]; then
+		echo "Warning: Setting alternate interface has no use unless the primary is set to 'tui'."
+		sleep 1
+	    else
+		mpvui="--input-conf='memory://_ cycle vid'"
+	    fi
             ;;
         *)
-            echo "Error: Invalid value for --interface. Use one of (text, sixel, gui)"
+            echo "Error: Invalid value for --interface. Use tui or gui."
             exit 1
             ;;
     esac
@@ -223,7 +253,8 @@ main() {
                       --no-border \
                       --delimiter='/' \
                       --layout=reverse-list \
-                      --no-multi \
+                      --multi \
+		      --marker='+' \
                       --cycle \
                       --sync \
                       --prompt="$(printf '%s\033[2m%s\033[0m' "$fzf_prompt" "$folder")" \
@@ -369,16 +400,18 @@ main() {
                     fi
 		    play_files --playlist=/tmp/fzp-playlist
                     ;;
-                add)
-                    # Similar to "play" but append to /tmp/fzp-playlist without relaunching mpv, i.e., add to queue
-                    if [[ "$mode" == "history" ]]; then
-                        cat "$selection" >> /tmp/fzp-playlist
-		    elif [[ "$mode" == "files" ]]; then
-			echo "$(realpath "$selection")" >> /tmp/fzp-playlist
-                    else
-                        fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort >> /tmp/fzp-playlist
-                    fi
-                    ;;
+add)
+    # Similar to "play" but append to /tmp/fzp-playlist without relaunching mpv, i.e., add to queue
+    if [[ "$mode" == "history" ]]; then
+        cat "$selection" >> /tmp/fzp-playlist
+    elif [[ "$mode" == "files" ]]; then
+        IFS=$'\n' [[ -n "$selection" ]] && echo "$(realpath "$dir/${selection[@]}")" >> /tmp/fzplaylist & exit
+    else
+        while IFS= read -r file; do
+            fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$file")" | sort >> /tmp/fzp-playlist
+        done <<< "$selection"
+    fi
+    ;;
                 edit)
                     # Invoke $EDITOR on the corresponding $HISTORY_DIR/YYYYMMDD_folderdepth2>folderdepth3 file
                     # Alternatively, revert to vim
