@@ -1,0 +1,1 @@
+Mention that fzp always plays from tmp playlist, even when selecting a saved playlist (i.e., it makes a temporary copy of that playlist); so if one wants to edit the running playlist, one should always do that on the tmp playlist (and possibly save it afterwards and overwrite a saved playlist if wanted).
