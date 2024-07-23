@@ -1,6 +1,10 @@
 local mp = require 'mp'
 local utils = require 'mp.utils'
 
+-- Variables to track visibility states
+local show_keybindings = false
+local show_playlist = true
+
 -- Function to get the current folder name and its parent directory
 local function get_current_and_parent_folder()
     local path = mp.get_property("path")
@@ -67,10 +71,6 @@ local function get_current_file_index(lines)
     end
     return 1
 end
-
--- Variables to track visibility states
-local show_keybindings = false
-local show_playlist = true
 
 -- Function to print the playlist, keybindings, and additional message
 local function print_playlist_and_keybindings()
@@ -158,6 +158,72 @@ end)
 mp.register_event('file-loaded', function()
     print_playlist_and_keybindings()
 end)
+
+-- Determine the playlist file path at the beginning
+local initial_playlist_file = mp.get_property("playlist")
+local filepath = "/tmp/fzp-playlist"
+
+-- If an initial playlist file was provided, use that for monitoring
+if initial_playlist_file and initial_playlist_file:match("^/") then
+    filepath = initial_playlist_file
+end
+
+-- Initialize last_mtime with the current modification time of the playlist file to avoid unnecessary interruption on startup
+local function initialize_last_mtime()
+    local file_info = utils.file_info(filepath)
+    if file_info then
+        last_mtime = file_info.mtime
+    end
+end
+
+initialize_last_mtime()
+
+-- Function to check and reload the playlist if it has changed
+local function check_and_reload_playlist()
+    local file_info = utils.file_info(filepath)
+    if file_info then
+        local mtime = file_info.mtime
+        if last_mtime == nil or mtime > last_mtime then
+            last_mtime = mtime
+
+            -- Save the current playback position and file
+            local current_position = mp.get_property_number("time-pos", 0)
+            local current_file = mp.get_property("path")
+
+            -- Load the new playlist
+            mp.commandv("loadlist", filepath, "replace")
+
+            -- Find the index of the current file in the new playlist
+            local function resume_playback()
+                if current_file then
+                    local playlist = mp.get_property_native("playlist")
+                    local current_index = nil
+                    for i, item in ipairs(playlist) do
+                        if item.filename == current_file then
+                            current_index = i - 1
+                            break
+                        end
+                    end
+
+                    -- If the current file is in the new playlist, resume playback from the saved position
+                    if current_index then
+                        mp.set_property_number("playlist-pos", current_index)
+                        mp.commandv("seek", current_position, "absolute", "exact")
+                    end
+                end
+            end
+
+            -- Use a deferred call to ensure the playlist is fully loaded before seeking
+            mp.add_timeout(0.1, resume_playback)
+
+            -- Print updated playlist and keybindings
+            print_playlist_and_keybindings()
+        end
+    end
+end
+
+-- Periodically check the playlist for changes
+mp.add_periodic_timer(1, check_and_reload_playlist)
 
 -- Add keybindings to toggle the screen state, keybindings, and playlist
 mp.add_key_binding("M", "toggle-all", toggle_all)

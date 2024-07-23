@@ -253,7 +253,7 @@ main() {
                       --no-border \
                       --delimiter='/' \
                       --layout=reverse-list \
-                      --multi \
+                      $multi \
 		      --marker='+' \
                       --cycle \
                       --sync \
@@ -304,6 +304,8 @@ main() {
             case "$arg" in
                 history)
                     mode="history"
+		    multi="--no-multi"
+		    last=1
                     filter="--type f"
                     filter2=". $HISTORY_DIR"
                     fzf_prompt='History > '
@@ -320,6 +322,7 @@ main() {
                     ;;
                 dirs)
                     mode="dirs"
+		    multi="--multi"
 		    if [[ "$dir" == "$HISTORY_DIR" ]]; then
 			dir="$path"
 		    else
@@ -341,6 +344,7 @@ main() {
                     ;;
                 files)
                     mode="files"
+		    multi="--multi"
 		    if [[ "$dir" == "$HISTORY_DIR" ]]; then
 			dir="$path"
 		    else
@@ -366,52 +370,121 @@ main() {
                     if [[ "$mode" == "history" ]]; then
                         cp "$selection" /tmp/fzp-playlist 2>/dev/null
 		    elif [[ "$mode" == "files" ]]; then
-			echo "$(realpath "$selection")" > /tmp/fzp-playlist
+			cat /dev/null > /tmp/fzp-playlist
+			while IFS= read -r line; do
+			    # Append the contents of each line to /tmp/fzp-playlist
+			    echo "$(realpath "$line")" >> /tmp/fzp-playlist
+			done <<< "$(echo "$selection")"
                     elif [[ "$mode" == "dirs" ]]; then
-                        fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort > /tmp/fzp-playlist
+			cat /dev/null > /tmp/fzp-playlist
+			while IFS= read -r line; do
+			    # Append the contents of each line to /tmp/fzp-playlist
+			    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
+			done <<< "$(echo "$selection")"
                     fi
                     last="$(tail -n 1 /tmp/fzp-pos)"
                     head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-po
                     play_files --playlist=/tmp/fzp-playlist
                     ;;
+		# save)
+                #     # Save current /tmp/fzp-playlist playlist to $HISTORY_DIR/YYYYMMDD_<number of lines in the file>_tracks
+                #     local datetime=$(date +%Y%m%d_%H%M%S)
+                #     if [[ "$mode" == "history" ]]; then
+                #         cp "$selection" /tmp/fzp-playlist
+		#     elif [[ "$mode" == "files" ]]; then
+		# 	cat /dev/null > /tmp/fzp-playlist
+		# 	while IFS= read -r line; do
+		# 	    # Append the contents of each line to /tmp/fzp-playlist
+		# 	    echo "$(realpath "$line")" >> /tmp/fzp-playlist
+		# 	done <<< "$(echo "$selection")"
+                #     elif [[ "$mode" == "dirs" ]]; then
+		# 	cat /dev/null > /tmp/fzp-playlist
+		# 	while IFS= read -r line; do
+		# 	    # Append the contents of each line to /tmp/fzp-playlist
+		# 	    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
+		# 	done <<< "$(echo "$selection")"
+                #     fi
+                #     last="$(tail -n 1 /tmp/fzp-pos)"
+                #     head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-pos
+                #     cp /tmp/fzp-playlist "$HISTORY_DIR/${datetime}"
+                #     play_files --playlist=/tmp/fzp-playlist
+                #     ;;
 		save)
-                    # Save current /tmp/fzp-playlist playlist to $HISTORY_DIR/YYYYMMDD_<number of lines in the file>_tracks
-                    local datetime=$(date +%Y%m%d_%H%M%S)
-                    if [[ "$mode" == "history" ]]; then
-                        cp "$selection" /tmp/fzp-playlist
+		    # Save current /tmp/fzp-playlist playlist to $HISTORY_DIR/YYYYMMDD_HHMMSS
+		    local datetime=$(date +%Y%m%d_%H%M%S)
+		    if [[ "$mode" == "history" ]]; then
+			cp "$selection" /tmp/fzp-playlist 2>/dev/null
 		    elif [[ "$mode" == "files" ]]; then
-			echo "$(realpath "$selection")" > /tmp/fzp-playlist
+			cat /dev/null > /tmp/fzp-playlist
+			while IFS= read -r line; do
+			    # Append the contents of each line to /tmp/fzp-playlist
+			    echo "$(realpath "$line")" >> /tmp/fzp-playlist
+			done <<< "$(echo "$selection")"
+		    elif [[ "$mode" == "dirs" ]]; then
+			cat /dev/null > /tmp/fzp-playlist
+			while IFS= read -r line; do
+			    # Append the contents of each line to /tmp/fzp-playlist
+			    fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
+			done <<< "$(echo "$selection")"
+		    fi
+
+		    # Prompt for custom playlist name
+		    read -r -e -i "${datetime}" -p "$(echo -e "\033[2mSave tmp playlist to new playlist:\033[0m ")" playlist_name
+
+		    # Check if the name is valid
+		    if [[ -z "$playlist_name" ]]; then
+			playlist_name="${datetime}"
+		    elif [[ "$playlist_name" == *"../"* || "$playlist_name" == *"/.."* ]]; then
+			echo -e "\033[31m\nError:\033[0m Invalid name. Escalating into upper folders is not allowed." && sleep 1
+			return
+		    fi
+
+		    if [[ -f "$HISTORY_DIR/${playlist_name}" ]]; then
+			echo -e "\033[31m\nWarning:\033[0m A file with the same name already exists. Overwrite? (y/N):"
+			read -r overwrite
+			if [[ "$overwrite" != "y" ]]; then
+			    echo -e "\033[31m\n\n\nError:\033[0m Operation aborted."
+			    return
+			fi
+		    fi
+
+		    last="$(tail -n 1 /tmp/fzp-pos)"
+		    head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-pos
+		    cp /tmp/fzp-playlist "$HISTORY_DIR/${playlist_name}" 2>/dev/null
+		    ;;
+                add)
+                    # Append to /tmp/fzp-playlist without clearing it first or relaunching mpv, i.e., add to queue
+                    if [[ "$mode" == "history" ]]; then
+			cat "$selection" >> /tmp/fzp-playlist
+		    elif [[ "$mode" == "files" ]]; then
+			while IFS= read -r line; do
+			    # Append the contents of each line to /tmp/fzp-playlist
+			    echo "$(realpath "$line")" >> /tmp/fzp-playlist
+			done <<< "$(echo "$selection")"
                     elif [[ "$mode" == "dirs" ]]; then
-                        fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort > /tmp/fzp-playlist
+			while IFS= read -r line; do
+			    # Append the contents of each line to /tmp/fzp-playlist
+			    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
+			done <<< "$(echo "$selection")"
                     fi
-                    last="$(tail -n 1 /tmp/fzp-pos)"
-                    head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-pos
-                    cp /tmp/fzp-playlist "$HISTORY_DIR/${datetime}"
-                    play_files --playlist=/tmp/fzp-playlist
                     ;;
                 addplay)
-                    # Similar to "play" but append to /tmp/fzp-playlist without relaunching mpv, i.e., add to queue
+                    # Similar to "add" but launch mpv
                     if [[ "$mode" == "history" ]]; then
                         cat "$selection" >> /tmp/fzp-playlist
 		    elif [[ "$mode" == "files" ]]; then
-			echo "$(realpath "$selection")" >> /tmp/fzp-playlist
-                    else
-                        fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$selection")" | sort >> /tmp/fzp-playlist
+			while IFS= read -r line; do
+			    # Append the contents of each line to /tmp/fzp-playlist
+			    echo "$(realpath "$line")" >> /tmp/fzp-playlist
+			done <<< "$(echo "$selection")"
+                    elif [[ "$mode" == "dirs" ]]; then
+			while IFS= read -r line; do
+			    # Append the contents of each line to /tmp/fzp-playlist
+			    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
+			done <<< "$(echo "$selection")"
                     fi
 		    play_files --playlist=/tmp/fzp-playlist
                     ;;
-add)
-    # Similar to "play" but append to /tmp/fzp-playlist without relaunching mpv, i.e., add to queue
-    if [[ "$mode" == "history" ]]; then
-        cat "$selection" >> /tmp/fzp-playlist
-    elif [[ "$mode" == "files" ]]; then
-        IFS=$'\n' [[ -n "$selection" ]] && echo "$(realpath "$dir/${selection[@]}")" >> /tmp/fzplaylist & exit
-    else
-        while IFS= read -r file; do
-            fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$file")" | sort >> /tmp/fzp-playlist
-        done <<< "$selection"
-    fi
-    ;;
                 edit)
                     # Invoke $EDITOR on the corresponding $HISTORY_DIR/YYYYMMDD_folderdepth2>folderdepth3 file
                     # Alternatively, revert to vim
@@ -457,7 +530,7 @@ add)
                         rm -i "$(realpath "$selection")"
                     fi
                     ;;
-		cdown)
+		cddown)
                     # cd into selected directory and relaunch main()
                     if [[ "$mode" == "dirs" && -n "$(fd . --type d --max-depth 1 "$selection")" ]]; then
                         dir="$(realpath "$selection")"
@@ -592,10 +665,10 @@ add)
 
   Playback queue
 
-  \033[1;7m Ent \033[0;27m send to tmp playlist & play
-  \033[1;7m C-s \033[0;27m save to new playist & play
-  \033[1;7m C-j \033[0;27m enqueue to tmp playlist & resume
-  \033[1;7m C-a \033[0;27m enqueue to tmp playlist
+  \033[1;7m Ent \033[0;27m make tmp playlist with selection & play
+  \033[1;7m C-j \033[0;27m append selection to tmp playlist & resume
+  \033[1;7m C-a \033[0;27m append selection to tmp playlist
+  \033[1;7m C-s \033[0;27m save tmp playlist to neww playlist
 
   Preview
 
@@ -657,6 +730,7 @@ configure_mpv_interface
 
 case "$mode" in
     history)
+	multi="--no-multi"
         filter="--type f"
         filter2="."
         fzf_prompt='History > '
@@ -669,6 +743,7 @@ case "$mode" in
         main "$HISTORY_DIR"
         ;;
     files)
+	multi="--multi"
         filter='--type f'
         filter2='--max-depth 8 -e mp3 -e m4a -e flac -e wav -e ogg'
         fzf_prompt='Files > '
@@ -681,6 +756,7 @@ case "$mode" in
         main "$path"
         ;;
     ""|dirs)
+	multi="--multi"
         mode="dirs"
         filter='--type d'
         filter2="."
