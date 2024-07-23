@@ -305,7 +305,7 @@ main() {
                 history)
                     mode="history"
 		    multi="--no-multi"
-		    last=1
+		    last=""
                     filter="--type f"
                     filter2=". $HISTORY_DIR"
                     fzf_prompt='History > '
@@ -684,9 +684,8 @@ main() {
 				;;
 			esac
 		    fi
-                    last="$(tail -n 1 /tmp/fzp-pos)"
 		    ;;
-                quit)
+                Quit)
                     # Quit the program
                     pkill -P $$
 		    clear
