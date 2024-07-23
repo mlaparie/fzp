@@ -52,10 +52,10 @@ show_help() {
     echo "Options:"
     echo "  -d, --dirs, --directories     List directories only (default)"
     echo "  -f, --files                   List audio files recursively with directories"
-    echo "  -c, --continue, --history     Resume playback from history"
+    echo "  -c, --continue, --history     Resume playback from history/playlists"
     echo "  -i, --interface <value>       Primary playback interface: tui (default) or gui"
-    echo "  -a, --alt-interface <value>   Set alternate interface if primary is tui: gui (default) or sixel"
-    echo "  -p, --path <path>             PSet path to media (default: ~/Music)"
+    echo "  -a, --alt-interface <value>   Alternate interface if primary is tui: gui (default) or sixel"
+    echo "  -p, --path <path>             Path to media (default: ~/Music)"
     echo "  -h, --help                    Show this help message and exit"
     echo ""
 }
@@ -386,29 +386,6 @@ main() {
                     head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-po
                     play_files --playlist=/tmp/fzp-playlist
                     ;;
-		# save)
-                #     # Save current /tmp/fzp-playlist playlist to $HISTORY_DIR/YYYYMMDD_<number of lines in the file>_tracks
-                #     local datetime=$(date +%Y%m%d_%H%M%S)
-                #     if [[ "$mode" == "history" ]]; then
-                #         cp "$selection" /tmp/fzp-playlist
-		#     elif [[ "$mode" == "files" ]]; then
-		# 	cat /dev/null > /tmp/fzp-playlist
-		# 	while IFS= read -r line; do
-		# 	    # Append the contents of each line to /tmp/fzp-playlist
-		# 	    echo "$(realpath "$line")" >> /tmp/fzp-playlist
-		# 	done <<< "$(echo "$selection")"
-                #     elif [[ "$mode" == "dirs" ]]; then
-		# 	cat /dev/null > /tmp/fzp-playlist
-		# 	while IFS= read -r line; do
-		# 	    # Append the contents of each line to /tmp/fzp-playlist
-		# 	    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
-		# 	done <<< "$(echo "$selection")"
-                #     fi
-                #     last="$(tail -n 1 /tmp/fzp-pos)"
-                #     head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-pos
-                #     cp /tmp/fzp-playlist "$HISTORY_DIR/${datetime}"
-                #     play_files --playlist=/tmp/fzp-playlist
-                #     ;;
 		save)
 		    # Save current /tmp/fzp-playlist playlist to $HISTORY_DIR/YYYYMMDD_HHMMSS
 		    local datetime=$(date +%Y%m%d_%H%M%S)
@@ -661,7 +638,7 @@ main() {
 
   \033[1;7m C-d \033[0;27m show directories only
   \033[1;7m C-f \033[0;27m show files recursively
-  \033[1;7m C-h \033[0;27m show history (saved playlists)
+  \033[1;7m C-h \033[0;27m show history (playlists)
 
   Playback queue
 
@@ -707,6 +684,7 @@ main() {
 				;;
 			esac
 		    fi
+                    last="$(tail -n 1 /tmp/fzp-pos)"
 		    ;;
                 quit)
                     # Quit the program
@@ -770,4 +748,3 @@ case "$mode" in
         main "$path"
         ;;
 esac
-
