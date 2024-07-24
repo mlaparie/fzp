@@ -8,8 +8,8 @@ HISTORY_DIR="$CONFIG_DIR/history"
 
 # Set default playback interface: one of "tui" or "gui":
 # "gui" automatically opens a mpv window on top of fzp, and the extra
-# window can be hidden without interrupting playback ("tui" mode) on a,
-# key press, while setting this to "tui" will default to not opening a mpv
+# window can be hidden without interrupting playback ("tui" mode) on a key
+# press, while setting this to "tui" will default to not opening a mpv
 # window, but can also be toggled during playback, see alt_interface below
 interface="tui"
 
@@ -21,17 +21,12 @@ interface="tui"
 # case the '_' key will always switch to "tui" (sixel switching not supported)
 alt_interface="gui"
 
-# Use supplied lua script to format output, recommended
-luascript="yes"
-
 #### End of configuration #######################################################
 
 # Variables
-if [ "$luascript" = "yes" ]; then
-    script="--script=$CONFIG_DIR/fzp.lua"
-fi
-BASE_PATH=""
 show_help=false
+BASE_PATH=""
+last=""
 
 if [[ ! -d "$HISTORY_DIR" ]]; then
     mkdir -p "$HISTORY_DIR"
@@ -40,11 +35,11 @@ fi
 # Define text status format
 text_status="'\${?pause==no:$(printf \\033[1\;5\;35m)▶ }\${?pause==yes:$(printf \\033[1\;5\;33m)⏸ }$(printf \\033[25m)\${percent-pos}% [\${time-pos}/\${duration}\${!speed==1: × \${speed}}]$(printf \\033[0m) $(printf \\033[1m)\${filename/no-ext}$(printf \\033[0m) \${?mute==yes:| $(printf \\033[36m)muted}$(printf \\033[0m) '"
 
-mpv_opts_base="--no-config --ao=pulse --osd-level=0 --profile=sw-fast $script --cover-art-auto=no --watch-later-dir=$HOME/.local/state/mpv/watch_later --save-position-on-quit --script-opts=osc-visibility=always,tick_delay=1 --msg-level=all=error,statusline=status --term-status-msg=$text_status"
+mpv_opts_base="--no-config --ao=pulse --osd-level=0 --profile=sw-fast --script=$CONFIG_DIR/fzp.lua --cover-art-auto=no --watch-later-dir=$HOME/.local/state/mpv/watch_later --save-position-on-quit --script-opts=osc-visibility=always,tick_delay=1 --msg-level=all=error,statusline=status --term-status-msg=$text_status"
 
 # Function to display help menu
 show_help() {
-    echo "fzp - A terminal audio player based on fzf and mpv, featuring fuzzy finding,"
+    echo "fzp - A terminal audio player based on fzf and mpv, supporting fuzzy finding,"
     echo "sixel graphics, playlists and history for resuming playback (i.e., audiobooks)."
     echo ""
     echo "Usage: $0 [options]"
@@ -285,13 +280,19 @@ main() {
                       --bind='ctrl-x:execute(echo "audio-preview" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-c:execute(echo "preview-toggled" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-q:execute(echo "quit" > /tmp/fzp-arg)+cancel' \
+		      --bind='up:up+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='down:down+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='left-click:execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='tab:toggle+down+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='btab:toggle+up+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='ctrl-o:execute-silent(xdg-open {})' \
+		      --bind='ctrl-\:execute-silent(echo "run" > /tmp/fzp-arg)+accept' \
                       --bind='esc:execute(echo "quit" > /tmp/fzp-arg)+cancel')
+
 
         if [[ -f "/tmp/fzp-arg" ]]; then
             arg=$(cat /tmp/fzp-arg)
             rm /tmp/fzp-arg
-        else
-            arg="ls -lah"
         fi
 
         if [[ -f "/tmp/fzp-last" ]]; then
@@ -351,7 +352,7 @@ main() {
 			dir="$dir"
 		    fi
                     filter='--type f'
-                    filter2='--max-depth 8 -e mp3 -e m4a -e flac -e wav -e ogg'
+                    filter2='--max-depth 8 -e mp3 -e m4a -e flac -e wav -e ogg -e ape'
                     fzf_prompt='Files > '
                     fzf_withnth="-3"
                     if [[ $(cat /tmp/fzp-preview) == "on" ]]; then 
@@ -379,11 +380,11 @@ main() {
 			cat /dev/null > /tmp/fzp-playlist
 			while IFS= read -r line; do
 			    # Append the contents of each line to /tmp/fzp-playlist
-			    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
+			    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg -e ape "$(realpath "$line")" | sort >> /tmp/fzp-playlist
 			done <<< "$(echo "$selection")"
                     fi
                     last="$(tail -n 1 /tmp/fzp-pos)"
-                    head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-po
+                    head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-pos
                     play_files --playlist=/tmp/fzp-playlist
                     ;;
 		save)
@@ -401,7 +402,7 @@ main() {
 			cat /dev/null > /tmp/fzp-playlist
 			while IFS= read -r line; do
 			    # Append the contents of each line to /tmp/fzp-playlist
-			    fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
+			    fd . --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg -e ape "$(realpath "$line")" | sort >> /tmp/fzp-playlist
 			done <<< "$(echo "$selection")"
 		    fi
 
@@ -421,12 +422,10 @@ main() {
 			read -r overwrite
 			if [[ "$overwrite" != "y" ]]; then
 			    echo -e "\033[31m\n\n\nError:\033[0m Operation aborted."
-			    return
+			    continue
 			fi
 		    fi
-
-		    last="$(tail -n 1 /tmp/fzp-pos)"
-		    head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-pos
+		    last=$(cat /tmp/fzp-line)
 		    cp /tmp/fzp-playlist "$HISTORY_DIR/${playlist_name}" 2>/dev/null
 		    ;;
                 add)
@@ -441,9 +440,10 @@ main() {
                     elif [[ "$mode" == "dirs" ]]; then
 			while IFS= read -r line; do
 			    # Append the contents of each line to /tmp/fzp-playlist
-			    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
+			    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg -e ape "$(realpath "$line")" | sort >> /tmp/fzp-playlist
 			done <<< "$(echo "$selection")"
                     fi
+		    last=$(cat /tmp/fzp-line)
                     ;;
                 addplay)
                     # Similar to "add" but launch mpv
@@ -457,13 +457,25 @@ main() {
                     elif [[ "$mode" == "dirs" ]]; then
 			while IFS= read -r line; do
 			    # Append the contents of each line to /tmp/fzp-playlist
-			    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg "$(realpath "$line")" | sort >> /tmp/fzp-playlist
+			    fd .  --type f --min-depth 1 --max-depth 8 -L -e mp3 -e m4a -e flac -e wav -e ogg -e ape "$(realpath "$line")" | sort >> /tmp/fzp-playlist
 			done <<< "$(echo "$selection")"
                     fi
+		    last=$(cat /tmp/fzp-line)
+                    # head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-pos
 		    play_files --playlist=/tmp/fzp-playlist
                     ;;
+		run)
+		    read -r -p "$(echo -e "\033[0;0H\033[2mRun command on selection:\033[0m ")" n
+		    printf "\n"
+                    while IFS= read -r line; do
+			eval "$n \"$(realpath "$line")\""
+		    done <<< "$(echo "$selection")"
+		    printf "\033[2m\nPress return to continue.\033[0m"
+		    read -r _
+		    last=$(cat /tmp/fzp-line)		    
+		    ;;
                 edit)
-                    # Invoke $EDITOR on the corresponding $HISTORY_DIR/YYYYMMDD_folderdepth2>folderdepth3 file
+                    # Invoke $EDITOR on the corresponding $HISTORY_DIR/YYYYMMDD_HHMMSS file
                     # Alternatively, revert to vim
                     # This option is only available while in History fzf prompt
                     if [[ "$mode" == "history" ]]; then
@@ -574,7 +586,7 @@ main() {
                     if [[ $(cat /tmp/fzp-preview) == "on" || $(cat /tmp/fzp-preview) == "audio-on" ]]; then 
                         echo "off" > /tmp/fzp-preview
                         fzf_preview=""
-                        pkill mpv
+                        # pkill mpv
                     else
                         echo "on" > /tmp/fzp-preview
                         case "$mode" in
@@ -586,7 +598,7 @@ main() {
                                 fzf_preview="tree -C {} | sed 's/[│├─└]/ /g'" ;;
                         esac
                     fi   
-                    continue
+		    last=$(cat /tmp/fzp-line)
                     ;;
                 audio-preview)
                     # Enable/disable audio preview
@@ -621,6 +633,7 @@ main() {
                         esac
                     fi
                     continue
+		    last=$(cat /tmp/fzp-line)
                     ;;
 		help)
 		    # Toggle help display
@@ -632,6 +645,7 @@ main() {
   \033[1;7m abc \033[0;27m fuzzy search
   \033[1;7m ← → \033[0;27m exit/enter directory
   \033[1;7m ↑ ↓ \033[0;27m move cursor up/down
+  \033[1;7m Tab \033[0;27m toggle selection
   \033[1;7m C-q \033[0;27m clear search or quit if none
 
   Mode
@@ -647,14 +661,16 @@ main() {
   \033[1;7m C-a \033[0;27m append selection to tmp playlist
   \033[1;7m C-s \033[0;27m save tmp playlist to neww playlist
 
-  Preview
+  Miscellaneous
 
+  \033[1;7m C-o \033[0;27m open externally
+  \033[1;7m C-\ \033[0;27m run command on selection
   \033[1;7m C-p \033[0;27m toggle preview panel
   \033[1;7m C-x \033[0;27m enable audio preview
   \033[1;7m C-c \033[0;27m disable audio preview
   \033[1;7m   ? \033[0;27m toggle help
 
-  History
+  History mode
 
   \033[1;7m C-e \033[0;27m edit playlist
   \033[1;7m C-r \033[0;27m rename playlist
@@ -684,6 +700,7 @@ main() {
 				;;
 			esac
 		    fi
+		    last=$(cat /tmp/fzp-line)
 		    ;;
                 quit)
                     # Quit the program
@@ -964,7 +981,7 @@ case "$mode" in
     files)
 	multi="--multi"
         filter='--type f'
-        filter2='--max-depth 8 -e mp3 -e m4a -e flac -e wav -e ogg'
+        filter2='--max-depth 8 -e mp3 -e m4a -e flac -e wav -e ogg -e ape'
         fzf_prompt='Files > '
         fzf_preview="soxi {}"
         fzf_preview_window="45%,border-left,nowrap"
