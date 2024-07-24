@@ -287,6 +287,7 @@ main() {
 		      --bind='btab:toggle+up+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
 		      --bind='ctrl-o:execute-silent(xdg-open {})' \
 		      --bind='ctrl-\:execute-silent(echo "run" > /tmp/fzp-arg)+accept' \
+		      --bind='$:execute-silent(echo "shell" > /tmp/fzp-arg)+accept' \
                       --bind='esc:execute(echo "quit" > /tmp/fzp-arg)+cancel')
 
 
@@ -464,6 +465,21 @@ main() {
                     # head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-pos
 		    play_files --playlist=/tmp/fzp-playlist
                     ;;
+		shell)
+		    if [[ "$mode" == "history" ]]; then
+			cd "$HISTORY_DIR"
+		    elif [[ "$mode" == "files" ]]; then
+			last_selection=$(echo "$selection" | tail -n 1)
+			cd "$(realpath "$(dirname "$last_selection")")"
+		    elif [[ "$mode" == "dirs" ]]; then
+			last_selection=$(echo "$selection" | tail -n 1)
+			cd "$(realpath "$last_selection")"
+		    fi
+		    printf "\033[2m\nPress C-d to return to fzp.\033[0m\n\n"
+		    $SHELL
+		    cd -
+		    last=$(cat /tmp/fzp-line)
+		    ;;
 		run)
 		    read -r -p "$(echo -e "\033[0;0H\033[2mRun command on selection:\033[0m ")" n
 		    printf "\n"
@@ -472,7 +488,7 @@ main() {
 		    done <<< "$(echo "$selection")"
 		    printf "\033[2m\nPress return to continue.\033[0m"
 		    read -r _
-		    last=$(cat /tmp/fzp-line)		    
+		    last=$(cat /tmp/fzp-line)
 		    ;;
                 edit)
                     # Invoke $EDITOR on the corresponding $HISTORY_DIR/YYYYMMDD_HHMMSS file
@@ -663,8 +679,9 @@ main() {
 
   Miscellaneous
 
-  \033[1;7m C-o \033[0;27m open externally
+  \033[1;7m   $ \033[0;27m open shell in folder of the last selection
   \033[1;7m C-\ \033[0;27m run command on selection
+  \033[1;7m C-o \033[0;27m open current line externally (xdg-open)
   \033[1;7m C-p \033[0;27m toggle preview panel
   \033[1;7m C-x \033[0;27m enable audio preview
   \033[1;7m C-c \033[0;27m disable audio preview
