@@ -129,7 +129,8 @@ parse_args() {
             -p|--path)
                 shift
                 if [ -z "$1" ]; then
-                    echo "Warning: --path requires a value. Using default."
+                    echo -e "\033[31mWarning:\033[0m --path requires a value. Using default."
+		    sleep 1
                     path=$(realpath "$media")
                 else
                     path=$(realpath "$1")
@@ -173,7 +174,7 @@ configure_mpv_interface() {
             ;;
         gui)
 	    if [[ -n "$secondary_interface" && "$secondary_interface" != "tui" ]]; then
-		echo "Warning: Setting alternate interface has no use unless the primary is set to 'tui'."
+	        echo -e "\033[31mWarning:\033[0m Setting alternate interface has no use unless the primary is set to 'tui'."
 		sleep 1
 	    else
 		mpvui="--input-conf='memory://_ cycle vid'"
@@ -204,23 +205,20 @@ main() {
     cd "$1" 2>/dev/null || { echo "Invalid media directory: '$1'"; exit 1; }
     echo "$1" >> /tmp/fzp-dirs
 
-    if [[ ! -f /tmp/fzp-playlist ]]; then
-        cat /dev/null > /tmp/fzp-playlist
+    # Keep a copy of the temporary playlist in history even after reboots
+    # Check if the files in /tmp and history directory exist
+    if [[ ! -f "$HISTORY_DIR"/tmp ]]; then
+	cat /dev/null > "$HISTORY_DIR"/tmp
     fi
+    if [[ ! -f /tmp/fzp-playlist ]]; then
+	# If it doesn't exist, create it based on the file in ~/.config
+	ln "$HISTORY_DIR"/tmp /tmp/fzp-playlist
+    fi
+
     cat /dev/null > /tmp/fzp-pos
     echo "on" > /tmp/fzp-preview
 
     while :; do
-
-	# Keep a copy of the temporary playlist in history even after reboots
-	# Check if the files in /tmp and history directory exist
-	if [[ ! -f "$HISTORY_DIR"/tmp ]]; then
-	    cat /dev/null > "$HISTORY_DIR"/tmp
-	fi
-	if [[ ! -f /tmp/fzp-playlist ]]; then
-	    # If it doesn't exist, create it based on the file in ~/.config
-	    ln -s "$HISTORY_DIR/tmp" /tmp/fzp-playlist
-	fi
 
 	if [[ -z "$dir" ]]; then
             dir="$1"
@@ -532,7 +530,15 @@ main() {
                     # Delete the selected file from history
                     # This option is only available while in History fzf prompt
                     if [[ "$mode" == "history" ]]; then
-                        rm -i "$(realpath "$selection")"
+                        case "$selection" in
+			    "$HISTORY_DIR"/tmp)
+				echo -e "\033[31m\nWarning:\033[0m The tmp playlist is central to fzp and cannot be deleted."
+				sleep 1
+				;;
+			    *)
+				rm -i "$(realpath "$selection")"
+				;;
+			    esac
                     fi
                     ;;
 		cddown)
