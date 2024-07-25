@@ -258,6 +258,11 @@ main() {
                       --margin='1,2,1,2' \
                       --color='16,gutter:-1' \
                       --info-command='echo -e "\x1b[33;1m$FZF_POS\x1b[m/$FZF_INFO"' \
+		      --bind='up:up+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='down:down+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='left-click:execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='tab:toggle+down+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='btab:toggle+up+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
                       --bind="start:pos($last)" \
                       --bind='enter:execute-silent(echo "$FZF_POS" >> /tmp/fzp-pos)' \
                       --bind='enter:+execute(echo "play" > /tmp/fzp-arg)+accept' \
@@ -278,11 +283,7 @@ main() {
                       --bind='ctrl-x:execute(echo "audio-preview" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-c:execute(echo "preview-toggled" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-q:execute(echo "quit" > /tmp/fzp-arg)+cancel' \
-		      --bind='up:up+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
-		      --bind='down:down+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
-		      --bind='left-click:execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
-		      --bind='tab:toggle+down+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
-		      --bind='btab:toggle+up+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+
 		      --bind='ctrl-o:execute-silent(xdg-open {})' \
 		      --bind='ctrl-\:execute-silent(echo "run" > /tmp/fzp-arg)+accept' \
 		      --bind='$:execute-silent(echo "shell" > /tmp/fzp-arg)+accept' \

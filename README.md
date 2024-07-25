@@ -32,7 +32,7 @@ Upon its first execution, `fzp` will create `~/.config/fzp` (by default) where i
 
 Some configuration values can be changed and made default within the `fzp` script itself, by modifying the variables at the top:
 
-```
+```sh
 #### Configuration ##############################################################
 # Folders
 media="$HOME/Music/"
@@ -58,7 +58,7 @@ alt_interface="gui"
 ```
 
 
-`fzp` has three main modes to browse and add tracks to the queue: directory mode (default, `C-d`), files (`C-f`, which lists audio files recursively) and history (`C-h`, which lists saved and temporary playlists). By design, `fzp` always plays tracks from a temporary playlist located by default in `~/.config/fzp/history/tmp`, regardless of the mode in use. Even when in history mode and resuming a playlist saved under another name, that playlist is actually copied to the temporary playlist under the hood.
+`fzp` has three main modes to browse and add tracks to the queue: "directories" mode (default, `C-d`), "files" (`C-f`, which lists audio files recursively) and "history" (`C-h`, which lists saved and temporary playlists). By design, `fzp` always plays tracks from a temporary playlist located by default in `~/.config/fzp/history/tmp`, regardless of the mode in use. Even when in history mode and resuming a playlist saved under another name, that playlist is actually copied to the temporary playlist under the hood.
 
 As a consequence, to alter the list of tracks after starting playback, you want to edit the temporary playlist named `tmp`, not the saved playlist that was used as a reference to create `tmp`.`tmp` can be saved at any time using `C-s`. This mechanism ensures that saved playlists are never altered by mistake when updating the play queue without remembering which playlist was activated in the first place, but only when they are intentionally managed from history mode.
 
@@ -67,3 +67,5 @@ Screenshots/videos will go here.
 
 ### Quirks
 `fzp` entirely relies on `mpv`'s built-in features to remember position in individual tracks and playlists. As of now, there may be some edge cases where this can be limiting, see [this culprit](https://github.com/mpv-player/mpv/issues/8138).
+
+Toggling the playback interface to Sixel and then back freezes the status line where playback progress is shown. Not sure how to fix it yet but it's on the to-do. Also, in the playback interface, pressing a key that changes the interface (i.e., showing the help) may sometimes garble the display depending on whether the keypress was synchronized with a statusline refresh; this is usually fixed by pressing the same keypresses again a few times.
