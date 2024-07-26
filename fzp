@@ -250,6 +250,7 @@ main() {
 		      --marker='+' \
                       --cycle \
                       --sync \
+		      --with-shell='sh -c' \
                       --prompt="$(printf '%s\033[2m%s\033[0m' "$fzf_prompt" "$folder")" \
                       --header="$fzf_header" \
                       --preview="$fzf_preview" \
@@ -283,7 +284,6 @@ main() {
                       --bind='ctrl-x:execute(echo "audio-preview" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-c:execute(echo "preview-toggled" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-q:execute(echo "quit" > /tmp/fzp-arg)+cancel' \
-
 		      --bind='ctrl-o:execute-silent(xdg-open {})' \
 		      --bind='ctrl-\:execute-silent(echo "run" > /tmp/fzp-arg)+accept' \
 		      --bind='$:execute-silent(echo "shell" > /tmp/fzp-arg)+accept' \
@@ -485,7 +485,7 @@ main() {
                     while IFS= read -r line; do
 			eval "$n \"$(realpath "$line")\""
 		    done <<< "$(echo "$selection")"
-		    printf "\033[2m\nPress return to continue.\033[0m"
+		    printf "\033[2m\nPress Enter to continue. \033[0m"
 		    read -r _
 		    last=$(cat /tmp/fzp-line)
 		    ;;
