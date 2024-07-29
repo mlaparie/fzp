@@ -250,7 +250,7 @@ main() {
 		      --marker='+' \
                       --cycle \
                       --sync \
-		      --with-shell='sh -c' \
+		      --with-shell='bash -c' \
                       --prompt="$(printf '%s\033[2m%s\033[0m' "$fzf_prompt" "$folder")" \
                       --header="$fzf_header" \
                       --preview="$fzf_preview" \
@@ -268,7 +268,7 @@ main() {
                       --bind='enter:execute-silent(echo "$FZF_POS" >> /tmp/fzp-pos)' \
                       --bind='enter:+execute(echo "play" > /tmp/fzp-arg)+accept' \
                       --bind='?:execute(echo "help" > /tmp/fzp-arg)+accept' \
-                      --bind='ctrl-p:execute(echo "preview-toggled" > /tmp/fzp-arg)+accept' \
+                      --bind='ctrl-p:execute(echo "toggle-preview" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-h:execute(echo "history" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-d:execute(echo "dirs" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-f:execute(echo "files" > /tmp/fzp-arg)+accept' \
@@ -282,7 +282,7 @@ main() {
                       --bind='right:execute-silent(echo "$FZF_POS" >> /tmp/fzp-pos)' \
                       --bind='right:+execute(echo "cddown" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-x:execute(echo "audio-preview" > /tmp/fzp-arg)+accept' \
-                      --bind='ctrl-c:execute(echo "preview-toggled" > /tmp/fzp-arg)+accept' \
+                      --bind='ctrl-c:execute(echo "toggle-preview" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-q:execute(echo "quit" > /tmp/fzp-arg)+cancel' \
 		      --bind='ctrl-o:execute-silent(xdg-open {})' \
 		      --bind='ctrl-\:execute-silent(echo "run" > /tmp/fzp-arg)+accept' \
@@ -604,7 +604,7 @@ main() {
                     head -n -1 /tmp/fzp-pos > /tmp/fzp-pos.tmp && mv /tmp/fzp-pos.tmp /tmp/fzp-pos
                     continue
                     ;;
-                preview-toggled)
+                toggle-preview)
                     # Toggle the preview panel on/off
                     if [[ $(cat /tmp/fzp-preview) == "on" || $(cat /tmp/fzp-preview) == "audio-on" ]]; then 
                         echo "off" > /tmp/fzp-preview
