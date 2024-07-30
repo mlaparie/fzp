@@ -272,6 +272,7 @@ main() {
                       --bind='ctrl-h:execute(echo "history" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-d:execute(echo "dirs" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-f:execute(echo "files" > /tmp/fzp-arg)+accept' \
+                      --bind='ctrl-l:execute(echo "list" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-e:execute(echo "edit" > /tmp/fzp-arg)+accept' \
                       --bind='del:execute(echo "delete" > /tmp/fzp-arg)+accept' \
                       --bind='ctrl-a:execute(echo "add" > /tmp/fzp-arg)+accept' \
@@ -334,7 +335,7 @@ main() {
                     fzf_prompt="Dirs > "
                     fzf_withnth="-3"
                     if [[ $(cat /tmp/fzp-preview) == "on" ]]; then 
-                        fzf_preview="tree -C {} | sed 's/[│├─└]/ /g'"
+                        fzf_preview="tree -C -P '*.mp3|*.m4a|*.flac|*.wav|*.ogg|*.ape|*.lrc' {} | sed 's/[│├─└]/ /g'"
                     fi
                     fzf_preview_window="45%,border-left,nowrap"
                     fzf_header='
@@ -618,7 +619,7 @@ main() {
                             files)
                                 fzf_preview="soxi {}" ;;
                             *)
-                                fzf_preview="tree -C {} | sed 's/[│├─└]/ /g'" ;;
+                                fzf_preview="tree -C -P '*.mp3|*.m4a|*.flac|*.wav|*.ogg|*.ape|*.lrc' {} | sed 's/[│├─└]/ /g'" ;;
                         esac
                     fi   
 		    last=$(cat /tmp/fzp-line)
@@ -640,7 +641,7 @@ main() {
                                     files)
                                         fzf_preview="soxi {}" ;;
                                     *)
-                                        fzf_preview="tree -C {} | sed 's/[│├─└]/ /g'" ;;
+                                        fzf_preview="tree -C -P '*.mp3|*.m4a|*.flac|*.wav|*.ogg|*.ape|*.lrc' {} | sed 's/[│├─└]/ /g'" ;;
                                 esac
                                 ;;
                             "off")
@@ -676,6 +677,7 @@ main() {
   \033[1;7m C-d \033[0;27m show directories only
   \033[1;7m C-f \033[0;27m show files recursively
   \033[1;7m C-h \033[0;27m show history (playlists)
+  \033[1;7m C-l \033[0;27m show current playlist
 
   Playback queue
 
@@ -713,7 +715,7 @@ main() {
 				    files)
 					fzf_preview="soxi {}" ;;
 				    *)
-					fzf_preview="tree -C {} | sed 's/[│├─└]/ /g'" ;;
+					fzf_preview="tree -C -P '*.mp3|*.m4a|*.flac|*.wav|*.ogg|*.ape|*.lrc' {} | sed 's/[│├─└]/ /g'" ;;
 				esac
 				;;
 			    "off")
@@ -1021,7 +1023,7 @@ case "$mode" in
         filter='--type d'
         filter2="."
         fzf_prompt="Dirs > "
-        fzf_preview="tree -C {} | sed 's/[│├─└]/ /g'"
+        fzf_preview="tree -C -P '*.mp3|*.m4a|*.flac|*.wav|*.ogg|*.ape|*.lrc' {} | sed 's/[│├─└]/ /g'"
         fzf_preview_window="45%,border-left,nowrap"
         fzf_header='
 ? Help
