@@ -191,7 +191,8 @@ configure_mpv_interface() {
 # We have to use an eval of $play_files here because this allows using double quotes; if we just use
 # a shell function, the $mpv_opts and $mpvui are not correctly expanded, even with double quotes
 play_files() {
-    eval "mpv $mpv_opts_base $mpvui $@"
+    eval "mpv --input-ipc-server=/tmp/mpv-socket $mpv_opts_base $mpvui $@"
+    mpv_pid=$!
 }
 
 # Basic file browser with directory and file preview
@@ -290,7 +291,6 @@ main() {
 		      --bind='$:execute-silent(echo "shell" > /tmp/fzp-arg)+accept' \
                       --bind='esc:execute(echo "quit" > /tmp/fzp-arg)+cancel')
 
-
         if [[ -f "/tmp/fzp-arg" ]]; then
             arg=$(cat /tmp/fzp-arg)
             rm /tmp/fzp-arg
@@ -366,6 +366,61 @@ main() {
 '
                     continue
                     ;;
+		list)
+		    current=$(echo '{"command": ["get_property", "playlist-pos"]}' | socat - /tmp/mpv-socket | jq -r '.data')
+		    track=$(while IFS= read -r file; do
+			soxi "$file" | awk  '
+        /Comments/ {
+            getline
+            while ($0 ~ /=/) {
+                if ($1 ~ /^Title=/) title = substr($0, index($0, "=") + 1)
+                if ($1 ~ /^Artist=/) artist = substr($0, index($0, "=") + 1)
+                if ($1 ~ /^Album=/) album = substr($0, index($0, "=") + 1)
+                if ($1 ~ /^Year=/) year = substr($0, index($0, "=") + 1)
+                getline
+            }
+        }
+        /Duration/ {
+            duration = $3
+        }
+        END {
+            if (artist && title && album && year && duration) {
+                print "\033[2m" album "\033[0m > " "\033[32m" artist "\033[0m - \033[33m" title "\033[0m\033[2m [" duration "] " year "\033[0m"
+            }
+        }'
+			    done < /tmp/fzp-playlist \
+				 | nl \
+                | fzf --query="${tmp}" \
+                      --prompt='# '  \
+                      --ansi \
+                      --extended \
+                      --no-border \
+                      --layout=reverse-list \
+                      --cycle \
+		      --with-nth=2.. \
+		      --with-shell='bash -c' \
+                      --prompt="$(printf '%s\033[2mActive playlist > \033[0m')" \
+                      --header="$fzf_header" \
+                      --no-preview \
+                      --margin='1,2,1,2' \
+                      --color='16,gutter:-1' \
+                      --info-command='echo -e "\x1b[33;1m$FZF_POS\x1b[m/$FZF_INFO"' \
+		      --bind="start:pos($current)" \
+                      --bind='enter:execute(echo "play" > /tmp/fzp-arg)' \
+		      --bind='up:up+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='down:down+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='left-click:execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='tab:toggle+down+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='btab:toggle+up+execute-silent(echo "$FZF_POS" > /tmp/fzp-line)' \
+		      --bind='ctrl-l:execute(echo "quit" > /tmp/fzp-arg)+cancel' \
+                      --bind='esc:execute(echo "quit" > /tmp/fzp-arg)+cancel+cancel' \
+		| awk '{print $1}')
+		    # kill $mpv_pid
+		    clear
+		    echo "{\"command\": [\"set_property\", \"playlist-pos\", $(($track - 1))]}" | socat - /tmp/mpv-socket
+		    # play_files --playlist=/tmp/fzp-playlist --playlist-start=$(($track - 1))
+		    continue
+		    ;;
                 play)
                     # fd the list of audio files in subdirectories of the selected folder and list them with their full path in /tmp/fzp-playlist
                     # Then run play_files on that list
@@ -627,10 +682,13 @@ main() {
                 audio-preview)
                     # Enable/disable audio preview
                     if [[ "$audio_preview" == "false" ]]; then
+			kill $mpv_pid
                         fzf_preview='echo -e "\033[5;1m♫\033[25;0m AUDIO PREVIEW\n\n\033[2mPress C-x to stop\033[0m" && sleep 0.2 && mpv --no-config --no-video --really-quiet {}'
+			mpv_pid=$!
                         audio_preview=true
                         echo "audio-on" > /tmp/fzp-preview
                     else
+			kill $mpv_pid
                         audio_preview=false
                         echo "audio-off" > /tmp/fzp-preview
                         case "$(cat /tmp/fzp-preview)" in
@@ -684,7 +742,7 @@ main() {
   \033[1;7m Ent \033[0;27m make tmp playlist with selection & play
   \033[1;7m C-j \033[0;27m append selection to tmp playlist & resume
   \033[1;7m C-a \033[0;27m append selection to tmp playlist
-  \033[1;7m C-s \033[0;27m save tmp playlist to neww playlist
+  \033[1;7m C-s \033[0;27m save tmp playlist to new playlist
 
   Miscellaneous
 
@@ -842,7 +900,7 @@ local function print_playlist_and_keybindings()
     local keybindings = [[
 printf '\033[36mKeybindings:\033[0m
 
-  \033[1;7m  space \033[0;27m  \033[2mplay/pause \033[0m                \033[1;7m     l \033[0;27m  \033[2mA/B loop \033[0m
+  \033[1;7m  space \033[0;27m  \033[2mplay/pause \033[0m                \033[1;7m     l \033[0;27m  \033[2mA/B loop (clear with a 3rd press)\033[0m
   \033[1;7m    ← → \033[0;27m  \033[2mseek -5/+5 seconds \033[0m        \033[1;7m     v \033[0;27m  \033[2mtoggle .lrc lyrics \033[0m
   \033[1;7m    ↑ ↓ \033[0;27m  \033[2mseek -60/+60 seconds \033[0m      \033[1;7m     P \033[0;27m  \033[2mtoggle playlist \033[0m
   \033[1;7m [ ] ⌫  \033[0;27m  \033[2mdec/inc/reset speed \033[0m       \033[1;7m     M \033[0;27m  \033[2mtoggle minimal TUI \033[0m
